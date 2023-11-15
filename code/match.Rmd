@@ -1,0 +1,237 @@
+---
+title: "Generate Propensity Score Matches"
+description: |
+ Use the matching candidate data from `fit_psm.Rmd` to find propensity score
+ matches for the cohort of interest.
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(877894)
+```
+
+This file was compiled on `r lubridate::now()` by 
+``r Sys.info()["effective_user"]`` on `r Sys.info()["nodename"]`. 
+
+```{r pkg-load}
+library(tidyverse)
+library(parallel)
+library(Rcpp)
+library(RcppProgress)
+```
+
+## Overview of Matching Approach
+Now that I have estimated propensity scores, I need to generate the matches. 
+I am impatient (recurring theme) and want to use parallel evaluation with 
+`parLapply()` to speed this up. While each individual matching job is single
+threaded, there is no reason I cannot run multiple threads at the same time
+for the different jobs. 
+
+First, I load the function included in `match.cpp`. This simply loops over the
+treated candidates and finds the nearest reference candidate with similar 
+duration of follow-up (+/- 90 days). If the difference in the log odds is less
+than 20% of the standard deviation of the pooled log odds, we keep this
+pairing. This is done in C++ as opposed to R just because it is way faster.
+
+This is pointing to the `match.cpp` file in a PD pre-print folder. This is 
+just reusing the same matching code (e.g., 1:1 NN with caliper).
+
+```{r def-match-cpp}
+sourceCpp("~/projects/pd-preprint/match.cpp")
+```
+
+I then define an R function `ps_match()` that does the matching for us. We pass
+the function values for:
+
+1. `treatment` a string indicating the treated cohort (must be one of `tz`, 
+`tam` or `5ari`)
+2. `control` a string indicating the name of the control cohort (must be one of
+`tam`, `5ari`)
+3. `seed` the seed to set the PRNG to in the cluster (we shuffle the data to
+handle tie breaking)
+
+```{r def-ps-match}
+ps_match <- function(treatment, control, two_rx, seed) {
+  if (two_rx) {
+    log_path <- glue::glue("/Shared/lss_jsimmeri/LBD/{treatment}_{control}_2rx.txt")
+  } else {
+    log_path <- glue::glue("/Shared/lss_jsimmeri/LBD/{treatment}_{control}_any.txt")
+  }  
+
+  if (file.exists(log_path)) {
+    file.remove(log_path)
+  }
+
+  cat(
+    glue::glue("{lubridate::now()} | Starting matching for {treatment} to {control} using seed = {seed}\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+
+  if (two_rx) {
+    data_path <- glue::glue("/Shared/lss_jsimmeri/LBD/model_{treatment}_{control}_2rx.rds")
+  } else {
+    data_path <- glue::glue("/Shared/lss_jsimmeri/LBD/model_{treatment}_{control}_any.rds")
+  }
+
+  candidates <- read_rds(data_path)
+  
+  set.seed(seed)
+  # shuffle since we will take the lowest index row in the event of a tie
+  # shuffling the data means that the lowest index row will be = to selecting
+  # at random from all ties (but much faster)
+  candidates <- candidates %>%
+    select(enrolid, treatment, follow_up_time, ptx) %>%
+    sample_frac(1)
+
+  cases <- candidates[candidates$treatment == 1, ]
+  controls <- candidates[candidates$treatment == 0, ]
+
+  cat(
+    glue::glue("{lubridate::now()} | Tx = {nrow(cases)} | Ref = {nrow(controls)}\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  
+  # we want to do our matching on the log odds, so convert from prob tx to
+  # the log odds of tx
+  case_ps <- log(cases$ptx / (1 - cases$ptx))
+  case_fu <- cases$follow_up_time
+  control_ps <- log(controls$ptx / (1 - controls$ptx))
+  control_fu <- controls$follow_up_time
+
+  caliper_std <- 0.2 * sd(c(case_ps, control_ps))
+
+  cat(
+    glue::glue("{lubridate::now()} | Matching Started \n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  pairs <- matchCpp(case_ps, case_fu, control_ps, control_fu, caliper_std)
+  cat(
+    glue::glue("{lubridate::now()} | Matching Complete \n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  # replace failure to match code (-1) with NA
+  pairs[pairs == -1] <- NA
+  
+  matches <- tibble(
+    case_id = cases$enrolid,
+    control_id = controls$enrolid[pairs],
+    pair_id = seq(1, nrow(cases))
+  )
+
+  
+  # remove failure to match
+  matches <- matches %>%
+    filter(!is.na(case_id), !is.na(control_id))
+  
+  pct_matched <- round(nrow(matches) / nrow(cases) * 100)
+
+  cat(
+    glue::glue("{lubridate::now()} | Matched {nrow(matches)} ({pct_matched}%) \n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+
+  matches <- matches %>%
+    gather(status, enrolid, -pair_id) %>%
+    mutate(treatment = ifelse(status == "case_id", 1, 0)) %>%
+    select(enrolid, treatment, pair_id)
+  
+  if (two_rx) {
+    match_path <- glue::glue("/Shared/lss_jsimmeri/LBD/matches_{treatment}_{control}_2rx.rds")
+  } else {
+    match_path <- glue::glue("/Shared/lss_jsimmeri/LBD/matches_{treatment}_{control}_any.rds")
+  }
+
+  write_rds(matches, match_path)
+  cat(
+    glue::glue("{lubridate::now()} | Complete \n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  return(0)
+}
+```
+
+
+## Parallelization
+### Wrapper
+This function needs a wrapper to embed all the arguments we want to pass to it
+in a single list:
+
+```{r def-par-match}
+par_match <- function(args) {
+  treatment <- args[[1]]
+  control <- args[[2]]
+  two_rx <- args[[3]]
+  seed <- args[[4]]
+  ps_match(treatment, control, two_rx, seed)
+  return(0)
+}
+```
+
+And the list we want to iterate over
+
+```{r def-args-list}
+seeds <- sample(1:10000000, 6)
+
+args_list <- list(
+  list("tz", "tam", TRUE, seeds[1]),
+  list("tz", "5ari", TRUE, seeds[2]),
+  list("tam", "5ari", TRUE, seeds[3]),
+  list("tz", "tam", FALSE, seeds[4]),
+  list("tz", "5ari", FALSE, seeds[5]),
+  list("tam", "5ari", FALSE, seeds[6])
+)
+```
+
+### Define Cluster
+Start the cluster and initalize it with the required functions and packages:
+
+```{r init-cluster}
+cl <- makeCluster(length(args_list))
+clusterEvalQ(cl, library(tidyverse))
+clusterEvalQ(cl, library(Rcpp))
+clusterEvalQ(cl, library(RcppProgress))
+clusterEvalQ(cl, sourceCpp("~/projects/pd-preprint/match.cpp"))
+clusterExport(cl, "ps_match")
+```
+
+### Generate Matches
+Then do that `parLapply()` magic:
+
+```{r get-matches}
+x <- parLapply(
+  cl,
+  args_list,
+  par_match
+)
+```
+
+```{r stop-cluster}
+stopCluster(cl)
+```
+
+## Session Info
+```{r sysinfo}
+sessionInfo()
+```

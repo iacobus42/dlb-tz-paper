@@ -1,0 +1,69 @@
+---
+title: "Ever User, Any Number of Times"
+description: |
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article:
+    toc: true
+    toc_depth: 3
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r pkg-load}
+library(tidyverse)
+library(survival)
+```
+
+```{r gen-outcomes}
+if (Sys.info()["sysname"] == "Darwin") {
+  shared_dir <- "/Volumes"
+} else {
+  shared_dir <- "/Shared"
+}
+
+model_data <- read_rds(glue::glue("/{shared_dir}/lss_jsimmeri/LBD/treated_model_data.rds"))
+
+outcomes <- model_data %>%
+  select(enrolid, drug, develops_pd, survival_time)
+```
+
+```{r load-matches}
+tz_tam_matches <- read_rds(glue::glue("{shared_dir}/lss_jsimmeri/LBD/matches_tz_tam_any.rds"))
+tz_5ari_matches <- read_rds(glue::glue("{shared_dir}/lss_jsimmeri/LBD/matches_tz_5ari_any.rds"))
+tam_5ari_matches <- read_rds(glue::glue("{shared_dir}/lss_jsimmeri/LBD/matches_tam_5ari_any.rds"))
+```
+
+```{r make-paired-outcomes}
+outcomes_tz_tam <- inner_join(outcomes, tz_tam_matches, by = c("enrolid"))
+outcomes_tz_5ari <- inner_join(outcomes, tz_5ari_matches, by = c("enrolid"))
+outcomes_tam_5ari <- inner_join(outcomes, tam_5ari_matches, by = c("enrolid"))
+```
+
+```{r}
+coxph(Surv(survival_time, develops_pd) ~ drug, 
+      data = outcomes_tz_tam, 
+      cluster = pair_id,
+      robust = TRUE) %>%
+  summary()
+
+coxph(Surv(survival_time, develops_pd) ~ drug, 
+      data = outcomes_tz_5ari, 
+      cluster = pair_id,
+      robust = TRUE) %>%
+  summary()
+
+coxph(Surv(survival_time, develops_pd) ~ drug, 
+      data = outcomes_tam_5ari, 
+      cluster = pair_id,
+      robust = TRUE) %>%
+  summary()
+```

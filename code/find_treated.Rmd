@@ -1,0 +1,183 @@
+---
+title: "Find All RX Events"
+description: |
+  We want to find all prescribing events for our drugs of interest and identify
+  ever users for the construction of our cohorts. 
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file was compiled on `r lubridate::now()` by 
+``r Sys.info()["effective_user"]`` on `r Sys.info()["nodename"]`. 
+
+```{r pkg-load}
+library(tidyverse)
+library(parallel)
+library(lubridate)
+```
+
+## Find NDC Numbers
+We want to find all the RX events for 
+
+1. alfuzosin (az)
+2. doxazosin (dz)
+3. terazosin (tz)
+4. tamsulosin (tamsulosin)
+5. dutasteride (5ari)
+6. finasteride (5ari)
+
+The Truven RX claims data have medications identified by the national drug 
+code number (NDC). We use the Redbook data from 2015 to find the relevant NDC
+codes for these 6 medications. We accept any medication that matches our
+medication name on the generic name of at least one of the active ingredients. 
+
+```{r redbook-load}
+redbook <- read_csv("/Shared/Statepi_Marketscan/databases/Truven/redbook.csv") %>%
+  select(NDCNUM, GENNME)
+```
+
+We use the groups `tz/dz/az`, `tamsulosin`, `5ari`, `statin` for the medication 
+based on the class. `stringr::str_detect()` is used to do regular expressions 
+matching on the generic name. 
+
+```{r redbook-filter}
+ndc_numbers <- bind_rows(
+  redbook %>%
+    filter(stringr::str_detect(tolower(GENNME), "alfuzosin")) %>%
+    mutate(drug = "tz/dz/az"),
+  redbook %>%
+    filter(stringr::str_detect(tolower(GENNME), "doxazosin")) %>%
+    mutate(drug = "tz/dz/az"),
+  redbook %>%
+    filter(stringr::str_detect(tolower(GENNME), "terazosin")) %>%
+    mutate(drug = "tz/dz/az"),
+  redbook %>%
+    filter(stringr::str_detect(tolower(GENNME), "tamsulosin")) %>%
+    mutate(drug = "tamsulosin"),
+  redbook %>%
+    filter(stringr::str_detect(tolower(GENNME), "dutasteride")) %>%
+    mutate(drug = "5ari"),
+  redbook %>%
+    filter(stringr::str_detect(tolower(GENNME), "finasteride")) %>%
+    mutate(drug = "5ari")
+) %>%
+  select(drug, NDCNUM)
+```
+
+## Find Dispensing Events
+### Configuring Cluster and Extraction Function
+Now that we have the relevant NDC numbers from the Redbook for the six study
+drugs, we next want to filter all the RX claims for claims featuring the 
+study drugs. 
+
+We are going to want to do this in parallel to speed up the processing time. 
+To do this, we set up `find_rx_events()` to take the `source` and `year` 
+values as the first and second elements of a vector. 
+
+```{r def-find-rx-events}
+find_rx_events <- function(args, required_ndc) {
+  source <- args[1]
+  year <- args[2]
+  db <- src_sqlite(glue::glue("/Shared/Statepi_Marketscan/databases/Truven/truven_{year}.db"))
+  enrolid <- tbl(db, glue::glue("rx_core_{source}_{year}")) %>%
+    filter(ndcnum %in% local(required_ndc$NDCNUM)) %>%
+    select(enrolid, ndcnum, svcdate, daysupp) %>%
+    mutate(enrolid = as.character(enrolid)) %>%
+    collect()
+  return(enrolid)
+}
+```
+
+We then make a list of those two element vectors for all the `source` and 
+`year` combinations of interest.
+
+```{r args-list}
+args_list <- list(
+  c("ccae", "01"), c("ccae", "02"), c("ccae", "03"), c("ccae", "04"),
+  c("ccae", "05"), c("ccae", "06"), c("ccae", "07"), c("ccae", "08"),
+  c("ccae", "09"), c("ccae", "10"), c("ccae", "11"), c("ccae", "12"),
+  c("ccae", "13"), c("ccae", "14"), c("ccae", "15"), c("ccae", "16"),
+  c("ccae", "17"),
+  c("mdcr", "01"), c("mdcr", "02"), c("mdcr", "03"), c("mdcr", "04"),
+  c("mdcr", "05"), c("mdcr", "06"), c("mdcr", "07"), c("mdcr", "08"),
+  c("mdcr", "09"), c("mdcr", "10"), c("mdcr", "11"), c("mdcr", "12"),
+  c("mdcr", "13"), c("mdcr", "14"), c("mdcr", "15"), c("mdcr", "16"),
+  c("mdcr", "17")
+)
+```
+
+Initialize the cluster, load `tidyverse`, and export `ndc_numbers` to the 
+workers:
+
+```{r cluster-init}
+cluster <- makeCluster(length(args_list))
+clusterEvalQ(cluster, library(tidyverse))
+clusterExport(cluster, c("ndc_numbers"))
+```
+
+### Extract the Data
+Using this cluster, we then apply the `find_rx_events()` function to `args_list`
+
+```{r data-extraction}
+rx_events <- parLapplyLB(cluster,
+                         args_list,
+                         find_rx_events,
+                         required_ndc = ndc_numbers)
+```
+
+Once complete, kill the cluster to release the resources. 
+
+```{r cluster-stop}
+stopCluster(cluster)
+```
+
+We then want to bind the elements of the `rx_events` list to a tibble.
+
+```{r bind-rows}
+rx_events <- bind_rows(rx_events)
+```
+
+And add the medication group label (tz/dz/az, tamsulosin, or 5ari):
+
+```{r add-label}
+rx_events <- rx_events %>%
+  inner_join(ndc_numbers,
+             by = c("ndcnum" = "NDCNUM"))
+```
+
+## Data Processing
+Most of our future tasks are based around knowing the ever users and loading 
+all of the `rx_events` would be longer and more costly than required. So 
+we compute the ever users here to speed that up.
+
+```{r compute-ever-users}
+ever_users <- rx_events %>%
+  group_by(enrolid, drug) %>%
+  summarize(first_rx_date = min(svcdate))
+```
+
+## Data Save
+We save the tibble of all the RX dispensing events and the ever user table of 
+start dates for use in later scripts. 
+
+```{r data-save}
+write_rds(rx_events, "/Shared/lss_jsimmeri/LBD/treated_rx_events.rds")
+write_rds(ever_users, "/Shared/lss_jsimmeri/LBD/ever_users.rds")
+```
+
+## Session Information
+```{r session-info}
+sessionInfo()
+```

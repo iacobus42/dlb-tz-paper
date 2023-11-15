@@ -1,0 +1,241 @@
+---
+title: "Build Dataset for Propensity Score Matching for Treated Cohort"
+description: |
+  Put together the dataset for estimating the propensity score model to 
+  construct the matched cohorts. This includes removing combination users, 
+  those without lookback, those with PD at the index date, and calculating the
+  variables used in the propensity score models.
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file was compiled on `r lubridate::now()` by 
+``r Sys.info()["effective_user"]`` on `r Sys.info()["nodename"]`. 
+
+```{r pkg-load}
+library(tidyverse)
+library(parallel)
+```
+
+Procedures can appear in three places in the Truven database:
+
+1. The facilities table: This reflect bills from facilities (e.g., hospitals)
+for service. Procedures are encoded using ICD-9 and ICD-10 procedure codes.
+2. The inpatient procedures table: These are largely encoded using either ICD-9,
+ICD-10, or CPT procedure codes.
+3. The outpatients table: Like the inpatient table, these are either ICD-9, 
+ICD-10, or CPT procedure codes.
+
+I start by defining three functions `find_procs_facility()`, 
+`find_procs_inpatient()`, and `find_procs_inpatient()` to find procedures in 
+these three places.
+
+```{r def-find-procs-facility}
+find_procs_facility <- function(source,  year, icd_codes) {
+  facility_db <- DBI::dbConnect(RSQLite::SQLite(), 
+                                glue::glue("/Shared/Statepi_Marketscan/databases/Truven/facilities_dbs/facilities_{year}.db"))
+  procedures <- tbl(facility_db, glue::glue("facility_proc_{source}_{year}")) %>%
+    filter(proc %in% icd_codes) %>%
+    select(enrolid, svcdate) %>%
+    mutate(enrolid = as.character(enrolid)) %>%
+    collect() %>%
+    rename(date = svcdate)
+  DBI::dbDisconnect(facility_db)
+  return(procedures)
+}
+```
+
+```{r def-find-procs-inpatient}
+find_procs_inpatient <- function(source, year, icd_codes, cpt_codes) {
+  core_db <- DBI::dbConnect(RSQLite::SQLite(), 
+                            glue::glue("/Shared/Statepi_Marketscan/databases/Truven/truven_{year}.db"))
+  cases <- tbl(core_db, glue::glue("inpatient_proc_{source}_{year}")) %>%
+    filter(
+      proc %in% c(icd_codes, cpt_codes)
+    ) %>%
+    select(caseid) %>%
+    collect()
+  
+  cases_with_dates <- tbl(core_db, glue::glue("inpatient_core_{source}_{year}")) %>%
+    filter(caseid %in% local(cases$caseid)) %>%
+    select(enrolid, admdate) %>%
+    mutate(enrolid = as.character(enrolid)) %>%
+    collect() %>%
+    rename(date = admdate)
+  
+  DBI::dbDisconnect(core_db)
+  
+  return(cases_with_dates)
+}
+```
+
+```{r def-find-procs-outpatient}
+find_procs_outpatient <- function(source, year, icd_codes, cpt_codes) {
+  core_db <- DBI::dbConnect(RSQLite::SQLite(), 
+                            glue::glue("/Shared/Statepi_Marketscan/databases/Truven/truven_{year}.db"))
+  
+  cases <- tbl(core_db, glue::glue("outpatient_core_{source}_{year}")) %>%
+    filter(
+      proc1 %in% c(icd_codes, cpt_codes)
+    ) %>%
+    select(enrolid, svcdate) %>%
+    mutate(enrolid = as.character(enrolid)) %>%
+    collect() %>%
+    rename(date = svcdate)
+  
+  DBI::dbDisconnect(core_db)
+  
+  return(cases)
+}
+```
+
+And then create a wrapper function that we can easily call with `parLapply()`
+to handle the actual extraction:
+
+```{r def-find-procs}
+find_procs <- function(args, icd_codes, cpt_codes) {
+  source <- args[[1]]
+  year <- args[[2]]
+  table <- args[[3]]
+  if (table == "facility") {
+    events <- find_procs_facility(source, year, icd_codes)
+  } else if (table == "inpatient") {
+    events <- find_procs_inpatient(source, year, icd_codes, cpt_codes)
+  } else {
+    events <- find_procs_outpatient(source, year, icd_codes, cpt_codes)
+  }
+  return(events)
+}
+```
+
+Start a cluster and export the functions:
+
+```{r cluster-init}
+# start the cluster
+cluster <- makeCluster(34)
+clusterEvalQ(cluster, library(tidyverse))
+clusterExport(cluster, c("find_procs_facility", "find_procs_inpatient",
+                         "find_procs_outpatient"))
+```
+
+We want to then create a list with the elements of `source`, `year`, and `table`
+where we want to do the extraction. Note for 2001, there is no facilities table.
+
+```{r def-args}
+args <- vector("list", 17 * 2 * 3 - 2)
+i <- 1
+for (year in stringr::str_pad(1:17, width = 2, pad = "0")) {
+  for (source in c("ccae", "mdcr")) {
+    for (table in c("facility", "inpatient", "outpatient")) {
+      if (!(year == "01" & table == "facility")) {
+        args[[i]] <- c(source, year, table)
+        i <- i + 1
+      }
+    }
+  }
+}
+```
+
+Then using this list and `find_procs()`, we want to find PSA measurement claims:
+
+```{r find-psa}
+psa_events <- parLapply(
+  cluster,
+  args,
+  find_procs, 
+  icd_codes = NULL,
+  cpt_codes = c("84152", "84153", "84154")
+)
+```
+
+Uroflow measurement claims:
+
+```{r find-uroflow}
+uroflow_events <- parLapply(
+  cluster,
+  args,
+  find_procs, 
+  icd_codes = c("8924", "4A1D75Z"),
+  cpt_codes = c("51736", "51741")
+)
+```
+
+Cystometrogram claims:
+
+```{r find_cystometrogram}
+cystometrogram_events <- parLapply(
+  cluster,
+  args,
+  find_procs, 
+  icd_codes = c("8922", "4A0D7BZ", "4A0D8BZ", "4A1D7BZ", "4A1D8BZ"),
+  cpt_codes = c("51725", "51726")
+)
+```
+
+Release the cluster's resources and convert the lists returned by the cluster
+into tibbles:
+
+```{r clean-up}
+stopCluster(cluster)
+
+# Convert to a tibble from list (must remove 0 length tibbles before binding)
+psa_events <- psa_events %>%
+  enframe() %>%
+  mutate(rows = purrr::map_dbl(value, nrow)) %>%
+  filter(rows > 0) %>%
+  select(value) %>%
+  unnest(cols = value) %>%
+  mutate(enrolid = as.numeric(enrolid))
+
+uroflow_events <- uroflow_events %>%
+  enframe() %>%
+  mutate(rows = purrr::map_dbl(value, nrow)) %>%
+  filter(rows > 0) %>%
+  select(value) %>%
+  unnest(cols = value) %>%
+  mutate(enrolid = as.numeric(enrolid))
+
+cystometrogram_events <- cystometrogram_events %>%
+  enframe() %>%
+  mutate(rows = purrr::map_dbl(value, nrow)) %>%
+  filter(rows > 0) %>%
+  select(value) %>%
+  unnest(cols = value) %>%
+  mutate(enrolid = as.numeric(enrolid))
+```
+
+Then write out the data for use in the propensity score fitting:
+
+```{r write-out}
+write_rds(
+  psa_events,
+  "/Shared/lss_jsimmeri/LBD/psa_procedures.rds"  
+)
+
+write_rds(
+  uroflow_events,
+  "/Shared/lss_jsimmeri/LBD/uroflow_procedures.rds"  
+)
+
+write_rds(
+  cystometrogram_events,
+  "/Shared/lss_jsimmeri/LBD/cystometrogram_procedures.rds"  
+)
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```

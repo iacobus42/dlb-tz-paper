@@ -1,0 +1,271 @@
+---
+title: "Balance Assessment and Survival Analysis | Tz/Dz/Az vs 5ARI"
+description: |
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r pkg-load}
+library("Rcpp")
+library(tidyverse)
+library(gtsummary)
+library(survival)
+library(effectsize)
+library(patchwork)
+```
+
+This file was compiled on `r lubridate::now()` by 
+``r Sys.info()["effective_user"]`` on `r Sys.info()["nodename"]`. 
+The script `analysis_functions.R` provides:
+
+1. some functions for summarizing the cohort and building tables that are
+   shared across scripts
+2. code to load the entire collection out outcomes data (which it returns
+   as `model_data` to the workspace)
+3. sets `root_dir` according to the location where the script is being run to
+   handle different syntax for referring to network drives in MacOS and CentOS
+
+```{r}
+source("~/projects/dlb-tz/analysis/analysis_functions.R")
+```
+
+## Data Load
+### Unadjusted Data
+The tibble `model_data` is loaded by `analysis_functions`
+`model_data` contains data on all users of the three drugs. We want to reduce
+that here to just Tz/Dz/Az and 5ARI. 
+
+```{r}
+model_data <- model_data %>%
+  filter(two_rx == TRUE) %>%
+  filter(drug %in% c("5ari", "tz/dz/az")) %>%
+  mutate(treatment = drug == "tz/dz/az")
+```
+
+### Matches
+We also want to load our matching results:
+
+```{r}
+matches <- read_rds(glue::glue("/{shared_dir}/lss_jsimmeri/LBD/matches_tz_5ari_2rx.rds"))
+```
+
+And using the matches, build matched versions of the tamsulosin versus 5ARI
+model data:
+
+```{r}
+matched_model_data <- model_data %>%
+  select(-treatment) %>%
+  inner_join(matches,
+    by = "enrolid")
+```
+
+## Balance and Cohort Description
+### Before Matching
+
+```{r}
+describe_cohort(model_data)
+```
+
+### After Matching
+
+```{r}
+describe_cohort(matched_model_data)
+```
+
+## Propensity Score Overlap
+We can also visually inspect the estimated propensity scores for overlap:
+
+```{r}
+ps <- read_rds(glue::glue("/{shared_dir}/lss_jsimmeri/LBD/model_tz_5ari_2rx.rds"))
+bind_rows(
+  model_data %>%
+    inner_join(ps, by = "enrolid") %>%
+    mutate(type = "Before Matching"),
+  matched_model_data %>%
+    inner_join(ps, by = "enrolid") %>%
+    mutate(type = "After Matching")
+  ) %>%
+  mutate(type = forcats::fct_rev(type)) %>%
+  ggplot(aes(x = ptx, fill = drug, color = drug)) +
+  geom_density(alpha = 0.5) + 
+  labs(x = "Probability of Treatment with 5ari", 
+       y = "Density",
+       color = "Observed Treatment",
+       fill = "Observed Treatment") +
+  theme_minimal() +
+  theme(legend.position = "bottom") + 
+  facet_wrap(~ type, nrow = 2)
+```
+
+It is visually apparent that the two cohorts have a limited overlap before
+matching, which is largely addressed with matching. 
+
+## Survival Analysis
+### Before Matching
+Prior to matching, we observe a large survival difference with greater incidence
+among men taking tamsulosin then 5ARI.
+
+```{r}
+km_unadjust <-survfit(Surv(survival_time, develops_pd) ~ treatment, 
+        data = model_data) %>%
+  broom::tidy() %>%
+  mutate(treatment = ifelse(strata == "treatment=TRUE", 
+    "tz/dz/az", "5ARI")) %>%
+  ggplot(
+    aes(
+      x = time / 365, 
+      y = 100 * estimate,
+      ymin = 100 * conf.low,
+      ymax = 100 * conf.high
+    )
+  ) +
+  geom_step(aes(color = treatment)) + 
+  geom_ribbon(aes(fill = treatment), alpha = 0.25) +
+  theme_minimal() + 
+  labs(x = "Years of Follow Up", y = "Percent Remaining LBD Free",
+       color = "", fill = "") + 
+  theme(legend.position = c(0.25, 0.25))
+```
+
+A finding that is statistically significant using the log rank test:
+
+```{r}
+survdiff(Surv(survival_time, develops_pd) ~ treatment, 
+         data = model_data)
+```
+
+The Cox regression pegs the protection at HR at 0.88 (0.80, 0.97).
+
+```{r}
+raw_cox <- coxph(Surv(survival_time, develops_pd) ~ as.numeric(treatment), 
+                 data = model_data,
+                 robust = TRUE)
+tbl_regression(raw_cox, exponentiate = TRUE)
+```
+
+However, this estimate is not trustworthy as we know the groups could be 
+better balanced.
+
+### With Propensity Score Matching
+Further adjustment yields similar results:
+
+We observe the following overall incidence: 
+
+```{r}
+matched_model_data %>%
+  group_by(drug) %>%
+  summarize(
+    cases = sum(develops_pd),
+    time = sum(survival_time / 365),
+    incidence = cases / time * 10000
+  ) %>%
+  knitr::kable()
+```
+
+With a Kaplan Meier curve:
+
+```{r}
+km_adjust <-survfit(Surv(survival_time, develops_pd) ~ drug, 
+        data = matched_model_data) %>%
+  broom::tidy() %>%
+  mutate(treatment = ifelse(strata == "drug=5ari", 
+    "5ARI", "TZ/DZ/AZ")) %>%
+  ggplot(
+    aes(
+      x = time / 365, 
+      y = 100 * estimate,
+      ymin = 100 * conf.low,
+      ymax = 100 * conf.high
+    )
+  ) +
+  geom_step(aes(color = treatment)) + 
+  geom_ribbon(aes(fill = treatment), alpha = 0.25) +
+  theme_minimal() + 
+  labs(x = "Years of Follow Up", y = "Percent Remaining LBD Free",
+       color = "", fill = "") + 
+  theme(legend.position = c(0.25, 0.25))
+```
+
+The population size at risk by year is given in the table below:
+
+```{r}
+survfit(Surv(survival_time, develops_pd) ~ drug, 
+        data = matched_model_data) %>%
+  broom::tidy() %>%
+  select(strata, time,, n.risk) %>%
+  complete(strata, time = 0:(16*365)) %>%
+  fill(n.risk, .direction = "down") %>%
+  mutate(drug = ifelse(strata == "drug=5ari", "5ARI", "TZ/DZ/AZ")) %>%
+  select(time, drug, n.risk) %>%
+  filter(time %in% c(1:16 * 365)) %>%
+  mutate(year = round(time / 365)) %>%
+  spread(drug, n.risk) %>%
+  knitr::kable()
+```
+
+A log rank test confirms that the curves remain different.
+
+```{r}
+survdiff(Surv(survival_time, develops_pd) ~ treatment, 
+         data = matched_model_data)
+```
+
+Survival times
+
+```{r}
+tbl_survfit(
+  survfit(
+    Surv(survival_time, develops_pd) ~ drug, data = matched_model_data
+  ),
+  probs = seq(0.5, 2, by = 0.5) / 100
+)
+```
+
+We fit a Cox regression model to estimate the differences in hazard:
+
+```{r}
+full_cox <- coxph(Surv(survival_time, develops_pd) ~ as.numeric(treatment), 
+                       data = matched_model_data,
+                       robust = TRUE)
+tbl_regression(full_cox, exponentiate = TRUE)
+```
+
+## Fit Summaries
+```{r}
+tbl_merge(
+  tbls = list(
+    tbl_regression(raw_cox, exponentiate = TRUE),
+    tbl_regression(full_cox, exponentiate = TRUE)
+  ),
+  tab_spanner = c("Unadjusted", "Propensity Score Matched")
+) %>% 
+  as_flex_table()
+```
+
+## Diagnostics
+```{r}
+scf_residuals <- cox.zph(full_cox)
+scf_residuals
+with(scf_residuals, cor.test(x, y))
+tibble(
+  x = scf_residuals$time,
+  y = scf_residuals$y
+) %>%
+  ggplot(aes(x = x / 365, y = y)) + 
+  geom_point() + 
+  geom_smooth(method = "loess") + 
+  labs(x = "Follow Up Time in Years", y = "Schoenfeld Residual") + 
+  theme_minimal()
+```

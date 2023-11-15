@@ -1,0 +1,88 @@
+---
+title: "Allowing Variable Burnin"
+description: |
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r pkg-load}
+library(tidyverse)
+library(gtsummary)
+library(survival)
+library(patchwork)
+```
+
+```{r gen-outcomes}
+if (Sys.info()["sysname"] == "Darwin") {
+  shared_dir <- "/Volumes"
+} else {
+  shared_dir <- "/Shared"
+}
+model_data <- read_rds(glue::glue("{shared_dir}/lss_jsimmeri/LBD/treated_model_data.rds"))
+
+outcomes <- model_data %>%
+  select(enrolid, drug, develops_pd, survival_time)
+```
+
+```{r}
+cox_model <- function(outcomes, treatment, control, i) {
+    if (Sys.info()["sysname"] == "Darwin") {
+    write_dir <- "~/scratch/"
+  } else {
+    write_dir <- "/Shared/lss_jsimmeri/LBD/"
+  }
+
+  matches <- read_rds(glue::glue("{write_dir}/matches_{treatment}_{control}_{i}.rds"))
+
+  matched_data <- inner_join(outcomes, matches, by = "enrolid")
+
+  model <- coxph(Surv(survival_time, develops_pd) ~ treatment,
+                 data = matched_data,
+                 cluster = pair_id,
+                 robust = TRUE)
+
+  results <- broom::tidy(model) %>%
+    mutate(hr = exp(estimate),
+           lb = exp(estimate - 1.96 * robust.se),
+           ub = exp(estimate + 1.96 * robust.se),
+           treatment = treatment,
+           control = control, 
+           burnin = i, 
+           n_cases = nobs(model),
+           n_people = nrow(matched_data),
+           n_pairs = NROW(unique(matched_data$pair_id)),
+           p.value = round(p.value, 4)) %>%
+    select(treatment, control, burnin, n_cases, n_people, n_pairs, hr, lb, ub, p.value)
+
+  return(results)
+}
+```
+
+```{r}
+bind_rows(
+  cox_model(outcomes, "tz", "tam", 0),
+  cox_model(outcomes, "tz", "tam", 1),
+  cox_model(outcomes, "tz", "tam", 2),
+  cox_model(outcomes, "tz", "tam", 3),
+  cox_model(outcomes, "tz", "5ari", 0),
+  cox_model(outcomes, "tz", "5ari", 1),
+  cox_model(outcomes, "tz", "5ari", 2),
+  cox_model(outcomes, "tz", "5ari", 3),
+  cox_model(outcomes, "tam", "5ari", 0),
+  cox_model(outcomes, "tam", "5ari", 1),
+  cox_model(outcomes, "tam", "5ari", 2),
+  cox_model(outcomes, "tam", "5ari", 3)
+)
+```

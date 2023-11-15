@@ -1,0 +1,188 @@
+---
+title: "Find First LBD Date for All Truven Enrollees"
+description: |
+  Find the first date with a diagnosis of LBD or a dispensing of levodopa across
+  all enrollees in Truven.
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file was compiled on `r lubridate::now()` by 
+``r Sys.info()["effective_user"]`` on `r Sys.info()["nodename"]`. 
+
+```{r pkg-load}
+library(tidyverse)
+library(parallel)
+```
+
+We define the index date of PD as either
+
+1. A diagnosis of LBD with ICD-9-CM 33182 or ICD-10-CM G3183
+
+To do this extraction, we build a function to find LBD diagnosis events in the
+outpatient data:
+
+```{r def-outpatient}
+find_outpatient_dx <- function(source, year) {
+  db <- DBI::dbConnect(RSQLite::SQLite(),
+                       glue::glue("/Shared/Statepi_Marketscan/databases/Truven/truven_{year}.db"))
+  if (as.numeric(year) <= 14) {
+    events <- tbl(db, glue::glue("outpatient_dx_{source}_{year}")) %>%
+      filter(dx == "33182") %>%
+      select(enrolid, svcdate) %>%
+      mutate(enrolid = as.character(enrolid)) %>%
+      collect() %>%
+      distinct()
+  } else {
+    events9 <- tbl(db, glue::glue("outpatient_dx9_{source}_{year}")) %>%
+      filter(dx == "33182") %>%
+      select(enrolid, svcdate) %>%
+      mutate(enrolid = as.character(enrolid)) %>%
+      collect() %>%
+      distinct()
+    events10 <- tbl(db, glue::glue("outpatient_dx10_{source}_{year}")) %>%
+      filter(dx == "G3183") %>%
+      select(enrolid, svcdate) %>%
+      mutate(enrolid = as.character(enrolid)) %>%
+      collect() %>%
+      distinct()
+    events <- rbind(events9, events10)
+  }
+
+  events <- events %>%
+    select(enrolid, date = svcdate)
+  DBI::dbDisconnect(db)
+  return(events)
+}
+```
+
+Inpatient data:
+
+```{r def-inpatient}
+find_inpatient_dx <- function(source, year) {
+  db <- DBI::dbConnect(RSQLite::SQLite(),
+                       glue::glue("/Shared/Statepi_Marketscan/databases/Truven/truven_{year}.db"))
+  if (as.numeric(year) <= 14) {
+    events <- tbl(db, glue::glue("inpatient_dx_{source}_{year}")) %>%
+      filter(dx == "33182") %>%
+      select(caseid) %>%
+      collect()
+  } else {
+    events9 <- tbl(db, glue::glue("inpatient_dx9_{source}_{year}")) %>%
+      filter(dx == "33182") %>%
+      select(caseid) %>%
+      collect()
+    events10 <- tbl(db, glue::glue("inpatient_dx10_{source}_{year}")) %>%
+      filter(dx == "G3183") %>%
+      select(caseid) %>%
+      collect()
+    events <- rbind(events9, events10)
+  }
+
+  events <- tbl(db, glue::glue("inpatient_core_{source}_{year}")) %>%
+    filter(caseid %in% local(events$caseid)) %>%
+    select(enrolid, admdate) %>%
+    mutate(enrolid = as.character(enrolid)) %>%
+    collect() %>%
+    select(enrolid, date = admdate)
+
+  DBI::dbDisconnect(db)
+  return(events)
+}
+```
+
+
+
+We are going to apply this using `parLapply()` for speed and so we want a 
+wrapper that takes a vector of arguments. 
+
+```{r def-fun}
+find_events <- function(args) {
+  source <- args[[1]]
+  year <- args[[2]]
+  table <- args[[3]]
+
+  if (table == "inpatient") {
+    events <- find_inpatient_dx(source, year)
+  } else if (table == "outpatient") {
+    events <- find_outpatient_dx(source, year)
+  } 
+  return(events)
+}
+```
+
+We then build the list of vectors. Each element of the list is a length 3 
+character vector with the first element being the `source`, second `year` and
+third `table` where `table` is one of `outpatient`, `inpatient`, or `rx`.
+
+```{r def-args}
+args_list <- vector("list", length = 2 * 17 * 2)
+i <- 1
+for (source in c("ccae", "mdcr")) {
+  for (year in stringr::str_pad(1:17, width = 2, pad = "0")) {
+    for (table in c("inpatient", "outpatient")) {
+      args_list[[i]] <- c(source, year, table)
+      i <- i + 1
+    }
+  }
+}
+```
+
+We then initalize the cluster
+
+```{r cluster-init}
+cluster <- makeCluster(56)
+clusterEvalQ(cluster, library(tidyverse))
+clusterExport(cluster, c("find_inpatient_dx", "find_outpatient_dx"))
+```
+
+And then apply `find_pd_events()` to `args_list` using the cluster `cluster`:
+
+```{r cluster-apply}
+events <- parLapplyLB(cluster,
+                         args_list,
+                         find_events)
+```
+
+We are done with the cluster and we release those resources:
+
+```{r cluster-stop}
+stopCluster(cluster)
+```
+
+We stack all the claims for LBD diagnosis and, for each `enrolid`,
+take the first occurence as the value of `pd_date`.
+
+```{r list-to-tibble}
+first_dlb_date <- events %>%
+  enframe() %>%
+  filter(purrr::map_int(value, nrow) > 0) %>%
+  unnest(cols = "value") %>%
+  group_by(enrolid) %>%
+  summarize(dlb_date = min(date))
+```
+
+Which we then save for later use.
+
+```{r save}
+write_rds(first_dlb_date,
+           "/Shared/lss_jsimmeri/LBD/first_dlb_date.rds")
+```
+
+Session info is below.
+
+```{r session-info}
+sessionInfo()
+```
