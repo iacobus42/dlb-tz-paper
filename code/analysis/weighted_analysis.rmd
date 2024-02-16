@@ -1,0 +1,233 @@
+---
+title: "Main Analysis using Weights Instead of Matches"
+description: |
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article:
+    toc: true
+    toc_depth: 3
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r pkg-load}
+library(tidyverse)
+library(survival)
+```
+
+This file was compiled on `r lubridate::now()` by 
+``r Sys.info()["effective_user"]`` on `r Sys.info()["nodename"]`. 
+
+## Load Outcomes
+
+```{r data-load}
+if (Sys.info()["sysname"] == "Darwin") {
+  shared_dir <- "/Volumes"
+} else {
+  shared_dir <- "/Shared"
+}
+model_data <- read_rds(glue::glue("{shared_dir}/lss_jsimmeri/LBD/treated_model_data.rds"))
+```
+
+Note that the variable `develops_pd` should be called `develops_dlb` - it was
+not updated when adapting code from a prior project.
+
+## Load Propensity Scores
+
+```{r}
+tz_tam_any <- read_rds("/Shared/lss_jsimmeri/LBD/model_tz_tam_any.rds")
+tz_tam_2rx <- read_rds("/Shared/lss_jsimmeri/LBD/model_tz_tam_2rx.rds")
+
+tz_5ari_any <- read_rds("/Shared/lss_jsimmeri/LBD/model_tz_5ari_any.rds")
+tz_5ari_2rx <- read_rds("/Shared/lss_jsimmeri/LBD/model_tz_5ari_2rx.rds")
+
+tam_5ari_any <- read_rds("/Shared/lss_jsimmeri/LBD/model_tam_5ari_any.rds")
+tam_5ari_2rx <- read_rds("/Shared/lss_jsimmeri/LBD/model_tam_5ari_2rx.rds")
+```
+
+## Calculate Inverse Probability Weights
+
+```{r}
+tz_tam_any <- tz_tam_any |>
+  mutate(
+    weight = case_when(
+      treatment == TRUE ~ 1 / ptx,
+      treatment == FALSE ~ 1 / (1 - ptx)
+    )
+  )
+tz_tam_2rx <- tz_tam_2rx |>
+  mutate(
+    weight = case_when(
+      treatment == TRUE ~ 1 / ptx,
+      treatment == FALSE ~ 1 / (1 - ptx)
+    )
+  )
+
+tz_5ari_any <- tz_5ari_any |>
+  mutate(
+    weight = case_when(
+      treatment == TRUE ~ 1 / ptx,
+      treatment == FALSE ~ 1 / (1 - ptx)
+    )
+  )
+tz_5ari_2rx <- tz_5ari_2rx |>
+  mutate(
+    weight = case_when(
+      treatment == TRUE ~ 1 / ptx,
+      treatment == FALSE ~ 1 / (1 - ptx)
+    )
+  )
+
+tam_5ari_any <- tam_5ari_any |>
+  mutate(
+    weight = case_when(
+      treatment == TRUE ~ 1 / ptx,
+      treatment == FALSE ~ 1 / (1 - ptx)
+    )
+  )
+tam_5ari_2rx <- tam_5ari_2rx |>
+  mutate(
+    weight = case_when(
+      treatment == TRUE ~ 1 / ptx,
+      treatment == FALSE ~ 1 / (1 - ptx)
+    )
+  )
+```
+
+## Fit Models
+```{r make-model-data-sets}
+model_data_tz_tam_2rx <- inner_join(
+  model_data |>
+    select(enrolid, develops_pd, survival_time),
+  tz_tam_2rx |>
+    select(enrolid, treatment, ptx, weight),
+  by = "enrolid"
+)
+model_data_tz_tam_any <- inner_join(
+  model_data |>
+    select(enrolid, develops_pd, survival_time),
+  tz_tam_any |>
+    select(enrolid, treatment, ptx, weight),
+  by = "enrolid"
+)
+
+model_data_tz_5ari_2rx <- inner_join(
+  model_data |>
+    select(enrolid, develops_pd, survival_time),
+  tz_5ari_2rx |>
+    select(enrolid, treatment, ptx, weight),
+  by = "enrolid"
+)
+model_data_tz_5ari_any <- inner_join(
+  model_data |>
+    select(enrolid, develops_pd, survival_time),
+  tz_5ari_any |>
+    select(enrolid, treatment, ptx, weight),
+  by = "enrolid"
+)
+
+model_data_tam_5ari_2rx <- inner_join(
+  model_data |>
+    select(enrolid, develops_pd, survival_time),
+  tam_5ari_2rx |>
+    select(enrolid, treatment, ptx, weight),
+  by = "enrolid"
+)
+model_data_tam_5ari_any <- inner_join(
+  model_data |>
+    select(enrolid, develops_pd, survival_time),
+  tam_5ari_any |>
+    select(enrolid, treatment, ptx, weight),
+  by = "enrolid"
+)
+```
+
+```{r fit-models}
+models <- bind_rows(
+  coxph(
+    Surv(survival_time, develops_pd) ~ treatment,
+    data = model_data_tz_tam_2rx,
+    weights = weight
+  ) |>
+    broom::tidy(conf.int = TRUE) |>
+    mutate(
+      two_rx = TRUE,
+      comparison = "Tz/Dz/AZ versus Tamsulosin"
+    ),
+  coxph(
+    Surv(survival_time, develops_pd) ~ treatment,
+    data = model_data_tz_tam_any,
+    weights = weight
+  ) |>
+    broom::tidy(conf.int = TRUE) |>
+    mutate(
+      two_rx = FALSE,
+      comparison = "Tz/Dz/AZ versus Tamsulosin"
+    ),
+  coxph(
+    Surv(survival_time, develops_pd) ~ treatment,
+    data = model_data_tz_5ari_2rx,
+    weights = weight
+  ) |>
+    broom::tidy(conf.int = TRUE) |>
+    mutate(
+      two_rx = TRUE,
+      comparison = "Tz/Dz/AZ versus 5ARI"
+    ),
+  coxph(
+    Surv(survival_time, develops_pd) ~ treatment,
+    data = model_data_tz_5ari_any,
+    weights = weight
+  ) |>
+    broom::tidy(conf.int = TRUE) |>
+    mutate(
+      two_rx = FALSE,
+      comparison = "Tz/Dz/AZ versus 5ARI"
+    ),
+  coxph(
+    Surv(survival_time, develops_pd) ~ treatment,
+    data = model_data_tam_5ari_2rx,
+    weights = weight
+  ) |>
+    broom::tidy(conf.int = TRUE) |>
+    mutate(
+      two_rx = TRUE,
+      comparison = "Tamsulosin versus 5ARI"
+    ),
+  coxph(
+    Surv(survival_time, develops_pd) ~ treatment,
+    data = model_data_tam_5ari_any,
+    weights = weight
+  ) |>
+    broom::tidy(conf.int = TRUE) |>
+    mutate(
+      two_rx = FALSE,
+      comparison = "Tamsulosin versus 5ARI"
+    )
+)
+```
+
+```{r}
+models |>
+  select(comparison, two_rx, estimate, conf.low, conf.high, p.value) |>
+  mutate(
+    across(
+      one_of(c("estimate", "conf.low", "conf.high")),
+      exp
+    )
+  ) |>
+  knitr::kable(digits = 3)
+```
+
+## Session Info
+```{r sysinfo}
+sessionInfo()
+```
