@@ -158,6 +158,82 @@ tibble(
 ```
 
 ## Step Function
+Event counts by period:
+
+```{r}
+outcomes_tz_tam %>%
+  mutate(
+    period = case_when(
+      survival_time <= 365 ~ "0-1",
+      survival_time <= 2 * 365 ~ "1-2",
+      survival_time <= 3 * 365 ~ "2-3",
+      survival_time <= 4 * 365 ~ "3-4",
+      survival_time <= 5 * 365 ~ "4-5",
+      survival_time <= 7.5 * 365 ~ "5-7.5",
+      survival_time <= 10 * 365 ~ "7.5-10",
+      survival_time > 10 ~ "10+"
+    )
+  ) |>
+  group_by(
+    drug, period
+  ) |>
+  summarize(
+    n = sum(develops_pd)
+  ) |>
+  pivot_wider(
+    names_from = "drug",
+    values_from = "n"
+  )
+
+outcomes_tz_5ari %>%
+  mutate(
+    period = case_when(
+      survival_time <= 365 ~ "0-1",
+      survival_time <= 2 * 365 ~ "1-2",
+      survival_time <= 3 * 365 ~ "2-3",
+      survival_time <= 4 * 365 ~ "3-4",
+      survival_time <= 5 * 365 ~ "4-5",
+      survival_time <= 7.5 * 365 ~ "5-7.5",
+      survival_time <= 10 * 365 ~ "7.5-10",
+      survival_time > 10 ~ "10+"
+    )
+  ) |>
+  group_by(
+    drug, period
+  ) |>
+  summarize(
+    n = sum(develops_pd)
+  ) |>
+  pivot_wider(
+    names_from = "drug",
+    values_from = "n"
+  )
+
+outcomes_tam_5ari %>%
+  mutate(
+    period = case_when(
+      survival_time <= 365 ~ "0-1",
+      survival_time <= 2 * 365 ~ "1-2",
+      survival_time <= 3 * 365 ~ "2-3",
+      survival_time <= 4 * 365 ~ "3-4",
+      survival_time <= 5 * 365 ~ "4-5",
+      survival_time <= 7.5 * 365 ~ "5-7.5",
+      survival_time <= 10 * 365 ~ "7.5-10",
+      survival_time > 10 ~ "10+"
+    )
+  ) |>
+  group_by(
+    drug, period
+  ) |>
+  summarize(
+    n = sum(develops_pd)
+  ) |>
+  pivot_wider(
+    names_from = "drug",
+    values_from = "n"
+  )
+```
+
 Fit with a time-varying effect but use a step function for each year of 
 follow-up (first year, second year, and so on to 10th or later year).
 

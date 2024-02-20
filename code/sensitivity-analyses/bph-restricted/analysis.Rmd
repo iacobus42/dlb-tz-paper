@@ -56,6 +56,16 @@ outcomes_tam_5ari <- inner_join(outcomes, tam_5ari_matches, by = c("enrolid"))
 ```
 
 ```{r}
+outcomes_tz_tam |>
+  group_by(drug) |>
+  summarize(sum(develops_pd))
+outcomes_tz_5ari |>
+  group_by(drug) |>
+  summarize(sum(develops_pd))
+outcomes_tam_5ari |>
+  group_by(drug) |>
+  summarize(sum(develops_pd))
+
 coxph(Surv(survival_time, develops_pd) ~ drug, 
       data = outcomes_tz_tam, 
       cluster = pair_id,
