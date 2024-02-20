@@ -58,6 +58,11 @@ model_data <- model_data %>%
 We also want to load our matching results:
 
 ```{r}
+if (Sys.info()["sysname"] == "Darwin") {
+  shared_dir <- "/Volumes"
+} else {
+  shared_dir <- "/Shared"
+}
 matches <- read_rds(glue::glue("/{shared_dir}/lss_jsimmeri/LBD/matches_tz_5ari_2rx.rds"))
 ```
 
