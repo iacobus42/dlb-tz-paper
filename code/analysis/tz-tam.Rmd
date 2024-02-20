@@ -205,7 +205,7 @@ The population size at risk by year is given in the table below:
 survfit(Surv(survival_time, develops_pd) ~ drug, 
         data = matched_model_data) %>%
   broom::tidy() %>%
-  select(strata, time,, n.risk) %>%
+  select(strata, time, n.risk) %>%
   complete(strata, time = 0:(16*365)) %>%
   fill(n.risk, .direction = "down") %>%
   mutate(drug = ifelse(strata == "drug=tamsulosin", "Tamsulosin", "TZ/DZ/AZ")) %>%
