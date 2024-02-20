@@ -93,8 +93,8 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
 
 
   <!--  https://schema.org/Article -->
-  <meta property="article:published" itemprop="datePublished" content="2024-02-16" />
-  <meta property="article:created" itemprop="dateCreated" content="2024-02-16" />
+  <meta property="article:published" itemprop="datePublished" content="2024-02-20" />
+  <meta property="article:created" itemprop="dateCreated" content="2024-02-20" />
   <meta name="article:author" content="Jacob Simmering, PhD" />
 
   <!--  https://developers.facebook.com/docs/sharing/webmasters#markup -->
@@ -110,7 +110,7 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
   <!--radix_placeholder_rmarkdown_metadata-->
 
   <script type="text/json" id="radix-rmarkdown-metadata">
-  {"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["title","description","author","date","output"]}},"value":[{"type":"character","attributes":{},"value":["Main Analysis using Weights Instead of Matches"]},{"type":"NULL"},{"type":"list","attributes":{},"value":[{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["name","url","affiliation","affiliation_url"]}},"value":[{"type":"character","attributes":{},"value":["Jacob Simmering, PhD"]},{"type":"character","attributes":{},"value":["https://jacobsimmering.com"]},{"type":"character","attributes":{},"value":["University of Iowa"]},{"type":"character","attributes":{},"value":["https://uiowa.edu"]}]}]},{"type":"character","attributes":{},"value":["2024-02-16"]},{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["distill::distill_article"]}},"value":[{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["toc","toc_depth"]}},"value":[{"type":"logical","attributes":{},"value":[true]},{"type":"integer","attributes":{},"value":[3]}]}]}]}
+  {"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["title","description","author","date","output"]}},"value":[{"type":"character","attributes":{},"value":["Main Analysis using Weights Instead of Matches"]},{"type":"NULL"},{"type":"list","attributes":{},"value":[{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["name","url","affiliation","affiliation_url"]}},"value":[{"type":"character","attributes":{},"value":["Jacob Simmering, PhD"]},{"type":"character","attributes":{},"value":["https://jacobsimmering.com"]},{"type":"character","attributes":{},"value":["University of Iowa"]},{"type":"character","attributes":{},"value":["https://uiowa.edu"]}]}]},{"type":"character","attributes":{},"value":["2024-02-20"]},{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["distill::distill_article"]}},"value":[{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["toc","toc_depth"]}},"value":[{"type":"logical","attributes":{},"value":[true]},{"type":"integer","attributes":{},"value":[3]}]}]}]}
   </script>
   <!--/radix_placeholder_rmarkdown_metadata-->
   
@@ -1493,7 +1493,7 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
 <!--radix_placeholder_front_matter-->
 
 <script id="distill-front-matter" type="text/json">
-{"title":"Main Analysis using Weights Instead of Matches","authors":[{"author":"Jacob Simmering, PhD","authorURL":"https://jacobsimmering.com","affiliation":"University of Iowa","affiliationURL":"https://uiowa.edu","orcidID":""}],"publishedDate":"2024-02-16T00:00:00.000-06:00","citationText":"PhD, 2024"}
+{"title":"Main Analysis using Weights Instead of Matches","authors":[{"author":"Jacob Simmering, PhD","authorURL":"https://jacobsimmering.com","affiliation":"University of Iowa","affiliationURL":"https://uiowa.edu","orcidID":""}],"publishedDate":"2024-02-20T00:00:00.000-06:00","citationText":"PhD, 2024"}
 </script>
 
 <!--/radix_placeholder_front_matter-->
@@ -1512,7 +1512,7 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
 <div class="d-byline">
   Jacob Simmering, PhD <a href="https://jacobsimmering.com" class="uri">https://jacobsimmering.com</a> (University of Iowa)<a href="https://uiowa.edu" class="uri">https://uiowa.edu</a>
   
-<br />2024-02-16
+<br />2024-02-20
 </div>
 
 <div class="d-article">
@@ -1534,8 +1534,8 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/therneau/survival">survival</a></span><span class="op">)</span></span></code></pre>
 </div>
 </div>
-<p>This file was compiled on 2024-02-16 10:10:23 by
-<code>jsimmeri</code> on argon-lc-g11-34.hpc.</p>
+<p>This file was compiled on 2024-02-20 13:46:53 by
+<code>jsimmeri</code> on argon-lc-f14-25.hpc.</p>
 <h2 id="load-outcomes">Load Outcomes</h2>
 <div class="layout-chunk" data-layout="l-body">
 <div class="sourceCode">
@@ -1671,7 +1671,8 @@ not updated when adapting code from a prior project.</p>
 <span>    <span class="fu">broom</span><span class="fu">::</span><span class="fu"><a href="https://generics.r-lib.org/reference/tidy.html">tidy</a></span><span class="op">(</span>conf.int <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>    <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html">mutate</a></span><span class="op">(</span></span>
 <span>      two_rx <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>      comparison <span class="op">=</span> <span class="st">&quot;Tz/Dz/AZ versus Tamsulosin&quot;</span></span>
+<span>      comparison <span class="op">=</span> <span class="st">&quot;Tz/Dz/AZ versus Tamsulosin&quot;</span>,</span>
+<span>      n <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">model_data_tz_tam_2rx</span><span class="op">)</span></span>
 <span>    <span class="op">)</span>,</span>
 <span>  <span class="fu"><a href="https://rdrr.io/pkg/survival/man/coxph.html">coxph</a></span><span class="op">(</span></span>
 <span>    <span class="fu"><a href="https://rdrr.io/pkg/survival/man/Surv.html">Surv</a></span><span class="op">(</span><span class="va">survival_time</span>, <span class="va">develops_pd</span><span class="op">)</span> <span class="op">~</span> <span class="va">treatment</span>,</span>
@@ -1681,7 +1682,8 @@ not updated when adapting code from a prior project.</p>
 <span>    <span class="fu">broom</span><span class="fu">::</span><span class="fu"><a href="https://generics.r-lib.org/reference/tidy.html">tidy</a></span><span class="op">(</span>conf.int <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>    <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html">mutate</a></span><span class="op">(</span></span>
 <span>      two_rx <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>      comparison <span class="op">=</span> <span class="st">&quot;Tz/Dz/AZ versus Tamsulosin&quot;</span></span>
+<span>      comparison <span class="op">=</span> <span class="st">&quot;Tz/Dz/AZ versus Tamsulosin&quot;</span>,</span>
+<span>      n <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">model_data_tz_tam_any</span><span class="op">)</span></span>
 <span>    <span class="op">)</span>,</span>
 <span>  <span class="fu"><a href="https://rdrr.io/pkg/survival/man/coxph.html">coxph</a></span><span class="op">(</span></span>
 <span>    <span class="fu"><a href="https://rdrr.io/pkg/survival/man/Surv.html">Surv</a></span><span class="op">(</span><span class="va">survival_time</span>, <span class="va">develops_pd</span><span class="op">)</span> <span class="op">~</span> <span class="va">treatment</span>,</span>
@@ -1691,7 +1693,8 @@ not updated when adapting code from a prior project.</p>
 <span>    <span class="fu">broom</span><span class="fu">::</span><span class="fu"><a href="https://generics.r-lib.org/reference/tidy.html">tidy</a></span><span class="op">(</span>conf.int <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>    <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html">mutate</a></span><span class="op">(</span></span>
 <span>      two_rx <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>      comparison <span class="op">=</span> <span class="st">&quot;Tz/Dz/AZ versus 5ARI&quot;</span></span>
+<span>      comparison <span class="op">=</span> <span class="st">&quot;Tz/Dz/AZ versus 5ARI&quot;</span>,</span>
+<span>      n <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">model_data_tz_5ari_2rx</span><span class="op">)</span></span>
 <span>    <span class="op">)</span>,</span>
 <span>  <span class="fu"><a href="https://rdrr.io/pkg/survival/man/coxph.html">coxph</a></span><span class="op">(</span></span>
 <span>    <span class="fu"><a href="https://rdrr.io/pkg/survival/man/Surv.html">Surv</a></span><span class="op">(</span><span class="va">survival_time</span>, <span class="va">develops_pd</span><span class="op">)</span> <span class="op">~</span> <span class="va">treatment</span>,</span>
@@ -1701,7 +1704,8 @@ not updated when adapting code from a prior project.</p>
 <span>    <span class="fu">broom</span><span class="fu">::</span><span class="fu"><a href="https://generics.r-lib.org/reference/tidy.html">tidy</a></span><span class="op">(</span>conf.int <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>    <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html">mutate</a></span><span class="op">(</span></span>
 <span>      two_rx <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>      comparison <span class="op">=</span> <span class="st">&quot;Tz/Dz/AZ versus 5ARI&quot;</span></span>
+<span>      comparison <span class="op">=</span> <span class="st">&quot;Tz/Dz/AZ versus 5ARI&quot;</span>,</span>
+<span>      n <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">model_data_tz_5ari_any</span><span class="op">)</span></span>
 <span>    <span class="op">)</span>,</span>
 <span>  <span class="fu"><a href="https://rdrr.io/pkg/survival/man/coxph.html">coxph</a></span><span class="op">(</span></span>
 <span>    <span class="fu"><a href="https://rdrr.io/pkg/survival/man/Surv.html">Surv</a></span><span class="op">(</span><span class="va">survival_time</span>, <span class="va">develops_pd</span><span class="op">)</span> <span class="op">~</span> <span class="va">treatment</span>,</span>
@@ -1711,7 +1715,8 @@ not updated when adapting code from a prior project.</p>
 <span>    <span class="fu">broom</span><span class="fu">::</span><span class="fu"><a href="https://generics.r-lib.org/reference/tidy.html">tidy</a></span><span class="op">(</span>conf.int <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>    <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html">mutate</a></span><span class="op">(</span></span>
 <span>      two_rx <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>      comparison <span class="op">=</span> <span class="st">&quot;Tamsulosin versus 5ARI&quot;</span></span>
+<span>      comparison <span class="op">=</span> <span class="st">&quot;Tamsulosin versus 5ARI&quot;</span>,</span>
+<span>      n <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">model_data_tam_5ari_2rx</span><span class="op">)</span></span>
 <span>    <span class="op">)</span>,</span>
 <span>  <span class="fu"><a href="https://rdrr.io/pkg/survival/man/coxph.html">coxph</a></span><span class="op">(</span></span>
 <span>    <span class="fu"><a href="https://rdrr.io/pkg/survival/man/Surv.html">Surv</a></span><span class="op">(</span><span class="va">survival_time</span>, <span class="va">develops_pd</span><span class="op">)</span> <span class="op">~</span> <span class="va">treatment</span>,</span>
@@ -1721,7 +1726,8 @@ not updated when adapting code from a prior project.</p>
 <span>    <span class="fu">broom</span><span class="fu">::</span><span class="fu"><a href="https://generics.r-lib.org/reference/tidy.html">tidy</a></span><span class="op">(</span>conf.int <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>    <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html">mutate</a></span><span class="op">(</span></span>
 <span>      two_rx <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>      comparison <span class="op">=</span> <span class="st">&quot;Tamsulosin versus 5ARI&quot;</span></span>
+<span>      comparison <span class="op">=</span> <span class="st">&quot;Tamsulosin versus 5ARI&quot;</span>,</span>
+<span>      n <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">model_data_tam_5ari_any</span><span class="op">)</span></span>
 <span>    <span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre>
 </div>
@@ -1729,7 +1735,7 @@ not updated when adapting code from a prior project.</p>
 <div class="layout-chunk" data-layout="l-body">
 <div class="sourceCode">
 <pre class="sourceCode r"><code class="sourceCode r"><span><span class="va">models</span> <span class="op">|&gt;</span></span>
-<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html">select</a></span><span class="op">(</span><span class="va">comparison</span>, <span class="va">two_rx</span>, <span class="va">estimate</span>, <span class="va">conf.low</span>, <span class="va">conf.high</span>, <span class="va">p.value</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html">select</a></span><span class="op">(</span><span class="va">comparison</span>, <span class="va">two_rx</span>, <span class="va">n</span>, <span class="va">estimate</span>, <span class="va">conf.low</span>, <span class="va">conf.high</span>, <span class="va">p.value</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html">mutate</a></span><span class="op">(</span></span>
 <span>    <span class="fu"><a href="https://dplyr.tidyverse.org/reference/across.html">across</a></span><span class="op">(</span></span>
 <span>      <span class="fu"><a href="https://tidyselect.r-lib.org/reference/one_of.html">one_of</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="st">&quot;estimate&quot;</span>, <span class="st">&quot;conf.low&quot;</span>, <span class="st">&quot;conf.high&quot;</span><span class="op">)</span><span class="op">)</span>,</span>
@@ -1743,6 +1749,7 @@ not updated when adapting code from a prior project.</p>
 <tr class="header">
 <th style="text-align: left;">comparison</th>
 <th style="text-align: left;">two_rx</th>
+<th style="text-align: right;">n</th>
 <th style="text-align: right;">estimate</th>
 <th style="text-align: right;">conf.low</th>
 <th style="text-align: right;">conf.high</th>
@@ -1753,6 +1760,7 @@ not updated when adapting code from a prior project.</p>
 <tr class="odd">
 <td style="text-align: left;">Tz/Dz/AZ versus Tamsulosin</td>
 <td style="text-align: left;">TRUE</td>
+<td style="text-align: right;">563358</td>
 <td style="text-align: right;">0.664</td>
 <td style="text-align: right;">0.556</td>
 <td style="text-align: right;">0.793</td>
@@ -1761,6 +1769,7 @@ not updated when adapting code from a prior project.</p>
 <tr class="even">
 <td style="text-align: left;">Tz/Dz/AZ versus Tamsulosin</td>
 <td style="text-align: left;">FALSE</td>
+<td style="text-align: right;">1001439</td>
 <td style="text-align: right;">0.744</td>
 <td style="text-align: right;">0.637</td>
 <td style="text-align: right;">0.869</td>
@@ -1769,6 +1778,7 @@ not updated when adapting code from a prior project.</p>
 <tr class="odd">
 <td style="text-align: left;">Tz/Dz/AZ versus 5ARI</td>
 <td style="text-align: left;">TRUE</td>
+<td style="text-align: right;">206471</td>
 <td style="text-align: right;">0.765</td>
 <td style="text-align: right;">0.612</td>
 <td style="text-align: right;">0.956</td>
@@ -1777,6 +1787,7 @@ not updated when adapting code from a prior project.</p>
 <tr class="even">
 <td style="text-align: left;">Tz/Dz/AZ versus 5ARI</td>
 <td style="text-align: left;">FALSE</td>
+<td style="text-align: right;">286231</td>
 <td style="text-align: right;">0.791</td>
 <td style="text-align: right;">0.649</td>
 <td style="text-align: right;">0.964</td>
@@ -1785,6 +1796,7 @@ not updated when adapting code from a prior project.</p>
 <tr class="odd">
 <td style="text-align: left;">Tamsulosin versus 5ARI</td>
 <td style="text-align: left;">TRUE</td>
+<td style="text-align: right;">517203</td>
 <td style="text-align: right;">1.003</td>
 <td style="text-align: right;">0.840</td>
 <td style="text-align: right;">1.199</td>
@@ -1793,6 +1805,7 @@ not updated when adapting code from a prior project.</p>
 <tr class="even">
 <td style="text-align: left;">Tamsulosin versus 5ARI</td>
 <td style="text-align: left;">FALSE</td>
+<td style="text-align: right;">924150</td>
 <td style="text-align: right;">1.012</td>
 <td style="text-align: right;">0.860</td>
 <td style="text-align: right;">1.191</td>

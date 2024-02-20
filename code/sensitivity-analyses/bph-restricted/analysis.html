@@ -93,8 +93,8 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
 
 
   <!--  https://schema.org/Article -->
-  <meta property="article:published" itemprop="datePublished" content="2023-11-01" />
-  <meta property="article:created" itemprop="dateCreated" content="2023-11-01" />
+  <meta property="article:published" itemprop="datePublished" content="2024-02-20" />
+  <meta property="article:created" itemprop="dateCreated" content="2024-02-20" />
   <meta name="article:author" content="Jacob Simmering, PhD" />
 
   <!--  https://developers.facebook.com/docs/sharing/webmasters#markup -->
@@ -110,7 +110,7 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
   <!--radix_placeholder_rmarkdown_metadata-->
 
   <script type="text/json" id="radix-rmarkdown-metadata">
-  {"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["title","description","author","date","output"]}},"value":[{"type":"character","attributes":{},"value":["Effect of Requiring Diagnosis/Procedure of BPH or Urinary Dysfunction"]},{"type":"NULL"},{"type":"list","attributes":{},"value":[{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["name","url","affiliation","affiliation_url"]}},"value":[{"type":"character","attributes":{},"value":["Jacob Simmering, PhD"]},{"type":"character","attributes":{},"value":["https://jacobsimmering.com"]},{"type":"character","attributes":{},"value":["University of Iowa"]},{"type":"character","attributes":{},"value":["https://uiowa.edu"]}]}]},{"type":"character","attributes":{},"value":["2023-11-01"]},{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["distill::distill_article"]}},"value":[{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["toc","toc_depth"]}},"value":[{"type":"logical","attributes":{},"value":[true]},{"type":"integer","attributes":{},"value":[3]}]}]}]}
+  {"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["title","description","author","date","output"]}},"value":[{"type":"character","attributes":{},"value":["Effect of Requiring Diagnosis/Procedure of BPH or Urinary Dysfunction"]},{"type":"NULL"},{"type":"list","attributes":{},"value":[{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["name","url","affiliation","affiliation_url"]}},"value":[{"type":"character","attributes":{},"value":["Jacob Simmering, PhD"]},{"type":"character","attributes":{},"value":["https://jacobsimmering.com"]},{"type":"character","attributes":{},"value":["University of Iowa"]},{"type":"character","attributes":{},"value":["https://uiowa.edu"]}]}]},{"type":"character","attributes":{},"value":["2024-02-20"]},{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["distill::distill_article"]}},"value":[{"type":"list","attributes":{"names":{"type":"character","attributes":{},"value":["toc","toc_depth"]}},"value":[{"type":"logical","attributes":{},"value":[true]},{"type":"integer","attributes":{},"value":[3]}]}]}]}
   </script>
   <!--/radix_placeholder_rmarkdown_metadata-->
   
@@ -1493,7 +1493,7 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
 <!--radix_placeholder_front_matter-->
 
 <script id="distill-front-matter" type="text/json">
-{"title":"Effect of Requiring Diagnosis/Procedure of BPH or Urinary Dysfunction","authors":[{"author":"Jacob Simmering, PhD","authorURL":"https://jacobsimmering.com","affiliation":"University of Iowa","affiliationURL":"https://uiowa.edu","orcidID":""}],"publishedDate":"2023-11-01T00:00:00.000-05:00","citationText":"PhD, 2023"}
+{"title":"Effect of Requiring Diagnosis/Procedure of BPH or Urinary Dysfunction","authors":[{"author":"Jacob Simmering, PhD","authorURL":"https://jacobsimmering.com","affiliation":"University of Iowa","affiliationURL":"https://uiowa.edu","orcidID":""}],"publishedDate":"2024-02-20T00:00:00.000-06:00","citationText":"PhD, 2024"}
 </script>
 
 <!--/radix_placeholder_front_matter-->
@@ -1512,7 +1512,7 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
 <div class="d-byline">
   Jacob Simmering, PhD <a href="https://jacobsimmering.com" class="uri">https://jacobsimmering.com</a> (University of Iowa)<a href="https://uiowa.edu" class="uri">https://uiowa.edu</a>
   
-<br />2023-11-01
+<br />2024-02-20
 </div>
 
 <div class="d-article">
@@ -1560,6 +1560,36 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
 </div>
 <div class="layout-chunk" data-layout="l-body">
 <div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span><span class="va">outcomes_tz_tam</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/group_by.html">group_by</a></span><span class="op">(</span><span class="va">drug</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/summarise.html">summarize</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/sum.html">sum</a></span><span class="op">(</span><span class="va">develops_pd</span><span class="op">)</span><span class="op">)</span></span></code></pre>
+</div>
+<pre><code># A tibble: 2 x 2
+  drug       `sum(develops_pd)`
+  &lt;chr&gt;                   &lt;int&gt;
+1 tamsulosin                111
+2 tz/dz/az                   84</code></pre>
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span><span class="va">outcomes_tz_5ari</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/group_by.html">group_by</a></span><span class="op">(</span><span class="va">drug</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/summarise.html">summarize</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/sum.html">sum</a></span><span class="op">(</span><span class="va">develops_pd</span><span class="op">)</span><span class="op">)</span></span></code></pre>
+</div>
+<pre><code># A tibble: 2 x 2
+  drug     `sum(develops_pd)`
+  &lt;chr&gt;                 &lt;int&gt;
+1 5ari                     78
+2 tz/dz/az                 63</code></pre>
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span><span class="va">outcomes_tam_5ari</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/group_by.html">group_by</a></span><span class="op">(</span><span class="va">drug</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/summarise.html">summarize</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/sum.html">sum</a></span><span class="op">(</span><span class="va">develops_pd</span><span class="op">)</span><span class="op">)</span></span></code></pre>
+</div>
+<pre><code># A tibble: 2 x 2
+  drug       `sum(develops_pd)`
+  &lt;chr&gt;                   &lt;int&gt;
+1 5ari                      106
+2 tamsulosin                116</code></pre>
+<div class="sourceCode">
 <pre class="sourceCode r"><code class="sourceCode r"><span><span class="fu"><a href="https://rdrr.io/pkg/survival/man/coxph.html">coxph</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/survival/man/Surv.html">Surv</a></span><span class="op">(</span><span class="va">survival_time</span>, <span class="va">develops_pd</span><span class="op">)</span> <span class="op">~</span> <span class="va">drug</span>, </span>
 <span>      data <span class="op">=</span> <span class="va">outcomes_tz_tam</span>, </span>
 <span>      cluster <span class="op">=</span> <span class="va">pair_id</span>,</span>
@@ -1570,20 +1600,20 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
 coxph(formula = Surv(survival_time, develops_pd) ~ drug, data = outcomes_tz_tam, 
     robust = TRUE, cluster = pair_id)
 
-  n= 89188, number of events= 199 
+  n= 89234, number of events= 195 
 
                 coef exp(coef) se(coef) robust se      z Pr(&gt;|z|)  
-drugtz/dz/az -0.3146    0.7301   0.1435    0.1438 -2.188   0.0286 *
+drugtz/dz/az -0.2791    0.7565   0.1446    0.1448 -1.927    0.054 .
 ---
 Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
 
              exp(coef) exp(-coef) lower .95 upper .95
-drugtz/dz/az    0.7301       1.37    0.5508    0.9677
+drugtz/dz/az    0.7565      1.322    0.5695     1.005
 
-Concordance= 0.538  (se = 0.021 )
-Likelihood ratio test= 4.86  on 1 df,   p=0.03
-Wald test            = 4.79  on 1 df,   p=0.03
-Score (logrank) test = 4.84  on 1 df,   p=0.03,   Robust = 4.83  p=0.03
+Concordance= 0.532  (se = 0.021 )
+Likelihood ratio test= 3.76  on 1 df,   p=0.05
+Wald test            = 3.71  on 1 df,   p=0.05
+Score (logrank) test = 3.75  on 1 df,   p=0.05,   Robust = 3.74  p=0.05
 
   (Note: the likelihood ratio and score tests assume independence of
      observations within a cluster, the Wald and robust score tests do not).</code></pre>
@@ -1598,18 +1628,18 @@ Score (logrank) test = 4.84  on 1 df,   p=0.03,   Robust = 4.83  p=0.03
 coxph(formula = Surv(survival_time, develops_pd) ~ drug, data = outcomes_tz_5ari, 
     robust = TRUE, cluster = pair_id)
 
-  n= 57396, number of events= 148 
+  n= 57416, number of events= 141 
 
                 coef exp(coef) se(coef) robust se      z Pr(&gt;|z|)
-drugtz/dz/az -0.1354    0.8734   0.1648    0.1639 -0.826    0.409
+drugtz/dz/az -0.2128    0.8083   0.1694    0.1696 -1.255     0.21
 
              exp(coef) exp(-coef) lower .95 upper .95
-drugtz/dz/az    0.8734      1.145    0.6334     1.204
+drugtz/dz/az    0.8083      1.237    0.5797     1.127
 
-Concordance= 0.526  (se = 0.023 )
-Likelihood ratio test= 0.68  on 1 df,   p=0.4
-Wald test            = 0.68  on 1 df,   p=0.4
-Score (logrank) test = 0.68  on 1 df,   p=0.4,   Robust = 0.68  p=0.4
+Concordance= 0.54  (se = 0.024 )
+Likelihood ratio test= 1.59  on 1 df,   p=0.2
+Wald test            = 1.57  on 1 df,   p=0.2
+Score (logrank) test = 1.58  on 1 df,   p=0.2,   Robust = 1.58  p=0.2
 
   (Note: the likelihood ratio and score tests assume independence of
      observations within a cluster, the Wald and robust score tests do not).</code></pre>
@@ -1624,23 +1654,23 @@ Score (logrank) test = 0.68  on 1 df,   p=0.4,   Robust = 0.68  p=0.4
 coxph(formula = Surv(survival_time, develops_pd) ~ drug, data = outcomes_tam_5ari, 
     robust = TRUE, cluster = pair_id)
 
-  n= 74234, number of events= 236 
+  n= 74220, number of events= 222 
 
-                 coef exp(coef) se(coef) robust se     z Pr(&gt;|z|)
-drugtamsulosin 0.2056    1.2283   0.1309    0.1311 1.569    0.117
+                  coef exp(coef) se(coef) robust se    z Pr(&gt;|z|)
+drugtamsulosin 0.09008   1.09427  0.13437   0.13452 0.67    0.503
 
                exp(coef) exp(-coef) lower .95 upper .95
-drugtamsulosin     1.228     0.8141      0.95     1.588
+drugtamsulosin     1.094     0.9139    0.8407     1.424
 
-Concordance= 0.52  (se = 0.019 )
-Likelihood ratio test= 2.48  on 1 df,   p=0.1
-Wald test            = 2.46  on 1 df,   p=0.1
-Score (logrank) test = 2.48  on 1 df,   p=0.1,   Robust = 2.47  p=0.1
+Concordance= 0.516  (se = 0.019 )
+Likelihood ratio test= 0.45  on 1 df,   p=0.5
+Wald test            = 0.45  on 1 df,   p=0.5
+Score (logrank) test = 0.45  on 1 df,   p=0.5,   Robust = 0.45  p=0.5
 
   (Note: the likelihood ratio and score tests assume independence of
      observations within a cluster, the Wald and robust score tests do not).</code></pre>
 </div>
-<div class="sourceCode" id="cb4"><pre class="sourceCode r distill-force-highlighting-css"><code class="sourceCode r"></code></pre></div>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r distill-force-highlighting-css"><code class="sourceCode r"></code></pre></div>
 <!--radix_placeholder_article_footer-->
 <!--/radix_placeholder_article_footer-->
 </div>
