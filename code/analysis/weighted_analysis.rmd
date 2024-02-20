@@ -160,7 +160,8 @@ models <- bind_rows(
     broom::tidy(conf.int = TRUE) |>
     mutate(
       two_rx = TRUE,
-      comparison = "Tz/Dz/AZ versus Tamsulosin"
+      comparison = "Tz/Dz/AZ versus Tamsulosin",
+      n = nrow(model_data_tz_tam_2rx)
     ),
   coxph(
     Surv(survival_time, develops_pd) ~ treatment,
@@ -170,7 +171,8 @@ models <- bind_rows(
     broom::tidy(conf.int = TRUE) |>
     mutate(
       two_rx = FALSE,
-      comparison = "Tz/Dz/AZ versus Tamsulosin"
+      comparison = "Tz/Dz/AZ versus Tamsulosin",
+      n = nrow(model_data_tz_tam_any)
     ),
   coxph(
     Surv(survival_time, develops_pd) ~ treatment,
@@ -180,7 +182,8 @@ models <- bind_rows(
     broom::tidy(conf.int = TRUE) |>
     mutate(
       two_rx = TRUE,
-      comparison = "Tz/Dz/AZ versus 5ARI"
+      comparison = "Tz/Dz/AZ versus 5ARI",
+      n = nrow(model_data_tz_5ari_2rx)
     ),
   coxph(
     Surv(survival_time, develops_pd) ~ treatment,
@@ -190,7 +193,8 @@ models <- bind_rows(
     broom::tidy(conf.int = TRUE) |>
     mutate(
       two_rx = FALSE,
-      comparison = "Tz/Dz/AZ versus 5ARI"
+      comparison = "Tz/Dz/AZ versus 5ARI",
+      n = nrow(model_data_tz_5ari_any)
     ),
   coxph(
     Surv(survival_time, develops_pd) ~ treatment,
@@ -200,7 +204,8 @@ models <- bind_rows(
     broom::tidy(conf.int = TRUE) |>
     mutate(
       two_rx = TRUE,
-      comparison = "Tamsulosin versus 5ARI"
+      comparison = "Tamsulosin versus 5ARI",
+      n = nrow(model_data_tam_5ari_2rx)
     ),
   coxph(
     Surv(survival_time, develops_pd) ~ treatment,
@@ -210,14 +215,15 @@ models <- bind_rows(
     broom::tidy(conf.int = TRUE) |>
     mutate(
       two_rx = FALSE,
-      comparison = "Tamsulosin versus 5ARI"
+      comparison = "Tamsulosin versus 5ARI",
+      n = nrow(model_data_tam_5ari_any)
     )
 )
 ```
 
 ```{r}
 models |>
-  select(comparison, two_rx, estimate, conf.low, conf.high, p.value) |>
+  select(comparison, two_rx, n, estimate, conf.low, conf.high, p.value) |>
   mutate(
     across(
       one_of(c("estimate", "conf.low", "conf.high")),
