@@ -1,0 +1,799 @@
+---
+title: "Build Dataset for Propensity Score Matching for Treated Cohort"
+description: |
+  Put together the dataset for estimating the propensity score model to 
+  construct the matched cohorts. This includes removing combination users, 
+  those without lookback, those with PD at the index date, and calculating the
+  variables used in the propensity score models.
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file was compiled on `r lubridate::now()` by 
+``r Sys.info()["effective_user"]`` on `r Sys.info()["nodename"]`. 
+
+```{r pkg-load}
+library(tidyverse)
+library(lubridate)
+library(parallel)
+library(icd)
+```
+
+## Data Load
+We load the enrollments previously computed, demographics, and the PD event 
+dates. 
+
+```{r data-load}
+enrollments <- read_rds("/Shared/lss_jsimmeri/LBD/candidate_treated_women.rds")
+demographics <- read_rds("/Shared/lss_jsimmeri/LBD/treated_demographics_women.rds")
+```
+
+## Find All Diagnosis Codes
+### Function Definitions 
+To compute the comorbidities, we need to know all the diagnoses that had 
+occurred previously. More precisely, we need to know when was the first 
+occurrence of the diagnosis.
+
+I am impatient and want to use `parLapply()` to accelerate this process. First,
+I define a function to find all outpatient events for a set of `enrolid` values.
+`find_outpatient()` does this returning all the outpatient events for a set of
+`required_enrolid`.
+
+```{r def-outpatient}
+find_outpatient <- function(source, year, required_enrolid) {
+  db <- DBI::dbConnect(RSQLite::SQLite(),
+                       glue::glue("/Shared/Statepi_Marketscan/databases/Truven/truven_{year}.db"))
+  if (as.numeric(year) <= 14) {
+    outpatient <- tbl(db, glue::glue("outpatient_dx_{source}_{year}")) %>%
+      filter(enrolid %in% required_enrolid) %>%
+      select(enrolid, svcdate, dx) %>%
+      mutate(icd_version = 9,
+             enrolid = as.character(enrolid)) %>%
+      collect()
+  } else {
+    outpatient_9 <- tbl(db, glue::glue("outpatient_dx9_{source}_{year}")) %>%
+      filter(enrolid %in% required_enrolid) %>%
+      select(enrolid, svcdate, dx) %>%
+      mutate(icd_version = 9,
+             enrolid = as.character(enrolid)) %>%
+      collect()
+    outpatient_10 <- tbl(db, glue::glue("outpatient_dx10_{source}_{year}")) %>%
+      filter(enrolid %in% required_enrolid) %>%
+      select(enrolid, svcdate, dx) %>%
+      mutate(icd_version = 10,
+             enrolid = as.character(enrolid)) %>%
+      collect()
+    if (nrow(outpatient_9) > 0 & nrow(outpatient_10) > 0) {
+      outpatient <- bind_rows(outpatient_9, outpatient_10)
+    } else if (nrow(outpatient_10) > 0) {
+      outpatient <- outpatient_10
+    } else {
+      outpatient <- outpatient_9
+    }
+  }
+
+  outpatient <- outpatient %>%
+    distinct()
+  DBI::dbDisconnect(db)
+  return(outpatient)
+}
+```
+
+Inpatient data:
+
+```{r def-inpatient}
+find_inpatient <- function(source, year, required_enrolid) {
+  db <- DBI::dbConnect(RSQLite::SQLite(),
+                       glue::glue("/Shared/Statepi_Marketscan/databases/Truven/truven_{year}.db"))
+  inpatient_core <- tbl(db, glue::glue("inpatient_core_{source}_{year}")) %>%
+    filter(enrolid %in% required_enrolid) %>%
+    mutate(enrolid = as.character(enrolid)) %>%
+    select(caseid, enrolid, admdate, los) %>%
+    collect() %>%
+    mutate(source = source, year = year)
+  if (as.numeric(year) <= 14) {
+    inpatient_dx <- tbl(db, glue::glue("inpatient_dx_{source}_{year}")) %>%
+      filter(caseid %in% local(inpatient_core$caseid)) %>%
+      select(caseid, dx) %>%
+      collect() %>%
+      mutate(icd_version = 9)
+  } else {
+    inpatient_9 <- tbl(db, glue::glue("inpatient_dx9_{source}_{year}")) %>%
+      filter(caseid %in% local(inpatient_core$caseid)) %>%
+      select(caseid, dx) %>%
+      collect() %>%
+      mutate(icd_version = 9)
+    inpatient_10 <- tbl(db, glue::glue("inpatient_dx10_{source}_{year}")) %>%
+      filter(caseid %in% local(inpatient_core$caseid)) %>%
+      select(caseid, dx) %>%
+      collect() %>%
+      mutate(icd_version = 10)
+    if (nrow(inpatient_9) > 0 & nrow(inpatient_10) > 0) {
+      inpatient_dx <- bind_rows(inpatient_9, inpatient_10)
+    } else if (nrow(inpatient_10) > 0) {
+      inpatient_dx <- inpatient_10
+    } else {
+      inpatient_dx <- inpatient_9
+    }
+  }
+  
+  inpatient_dx <- inpatient_dx %>%
+    inner_join(inpatient_core, by = "caseid") %>%
+    select(caseid, enrolid, admdate, icd_version, dx)
+
+  DBI::dbDisconnect(db)
+  return(list(core = inpatient_core, dx = inpatient_dx))
+}
+```
+
+A third function, `reduce_dx()`, does much of the heavy lifting. 
+`find_outpatient()` only returns the outpatient claims for `enrolid` values in 
+`required_enrolid` in `source`/`year`. We want to further reduce that within
+`source`/`year` to the first observed DX in either setting (outpatient or 
+inpatient) and also find the volume of inpatient and outpatient visits. Finally,
+we also want to count the number of diagnosis codes recorded on the typical 
+visit. The function `reduce_dx()` does this. 
+
+Additionally, it is structured to take 
+only one argument `args` that is a list of length 3 with elements `source`,
+`year`, and `required_enrolid` (as a vector). This makes it suitable for 
+easy application with `parLapply()`.
+
+```{r def-reduce-dx}
+reduce_dx <- function(args) {
+  source <- args[[1]] 
+  year <- args[[2]]
+  required_enrolid <- args[[3]]
+
+  log_path <- glue::glue("~/extraction_logs/{source}_{year}.txt")
+
+  if (file.exists(log_path)) {
+    file.remove(log_path)
+  }
+
+  cat(
+    glue::glue("{lubridate::now()} | {source}/{year} has {NROW(required_enrolid)} enrolid values\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  cat(
+    glue::glue("{lubridate::now()} | Starting outpatient extraction\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  outpatient <- find_outpatient(source, year, required_enrolid)
+
+  cat(
+    glue::glue("{lubridate::now()} | Starting inpatient extraction\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  inpatient <- find_inpatient(source, year, required_enrolid)
+
+  cat(
+    glue::glue("{lubridate::now()} | Pooling DX\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  dx <- bind_rows(
+    outpatient, 
+    inpatient[["dx"]] %>%
+      rename(svcdate = admdate)
+    ) %>%
+    select(enrolid, svcdate, icd_version, dx)
+
+  cat(
+    glue::glue("{lubridate::now()} | Finding first DX date\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  first_dx <- dx %>%
+    group_by(enrolid, icd_version, dx) %>%
+    summarize(
+      first_dx_date = min(svcdate),
+      .groups = "drop"
+    )
+
+  cat(
+    glue::glue("{lubridate::now()} | Getting outpatient volume\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  outpatient_volume <- outpatient %>%
+    select(enrolid, svcdate) %>%
+    distinct()
+  outpatient_dx_volume <- outpatient %>%
+    select(enrolid, svcdate, dx) %>%
+    distinct()
+  cat(
+    glue::glue("{lubridate::now()} | Getting outpatient dx by visit date\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  outpatient_ndx <- outpatient %>%
+    select(enrolid, svcdate, dx) %>%
+    distinct() %>%
+    group_by(enrolid, svcdate) %>%
+    summarize(ndx = n()) %>%
+    ungroup()
+  cat(
+    glue::glue("{lubridate::now()} | Getting inpatient volume\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  inpatient_volume <- inpatient[["core"]] %>%
+    select(enrolid, admdate, los)
+
+  cat(
+    glue::glue("{lubridate::now()} | Writing out\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  write_rds(first_dx, glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_women.rds"))
+  write_rds(inpatient_volume, glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_inpatient_women.rds"))
+  write_rds(outpatient_volume, glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient_women.rds"))
+  write_rds(outpatient_dx_volume, glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient_dx_women.rds"))
+  write_rds(outpatient_ndx, glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient_ndx_women.rds"))
+
+  cat(
+    glue::glue("{lubridate::now()} | Complete with {source}/{year}\n"), 
+    file = log_path,
+    append = TRUE,
+    sep = "\n"
+  )
+  
+  return(0)
+}
+```
+
+### Extraction
+We need to make the list for `parLapply()`. We have source of `ccae` and `mdcr`,
+years `01` to `17`. We also want to (for speed reasons) restrict the `enrolid`
+values submitted in the query to only those with enrollment in year `year`.
+
+```{r def-args-list}
+i <- 1
+args_list <- vector("list", 17 * 2)
+p <- progress::progress_bar$new(
+  total = 17 * 2,
+  format = "[:bar] :percent in :elapsed with :eta remaining"
+)
+for (source in c("mdcr", "ccae")) {
+  for (year in 2001:2017) {
+    year_start_date <- lubridate::ymd(glue::glue("{year}-01-01"))
+    year_end_date <- lubridate::ymd(glue::glue("{year}-12-31"))
+
+    required_enrolid <- enrollments %>%
+      filter(start_date <= year_end_date,
+             end_date >= year_start_date)
+
+    args_list[[i]] <- list(
+      source, stringr::str_sub(year, 3, 4), required_enrolid$enrolid
+    )
+    i <- i + 1
+    p$tick()
+  }
+}
+```
+
+We want to start a cluster of the same length as the list, load the tidyverse
+packages, and send `find_inpatient()` and `find_outpatient()` to the workers.
+
+```{r start-cluster}
+cluster <- makeCluster(min(56, length(args_list)))
+clusterEvalQ(cluster, library(tidyverse))
+clusterExport(cluster, c("find_inpatient", "find_outpatient"))
+```
+
+And then apply `reduce_dx()` to `args_list` using `cluster` and `parLapply()`:
+
+```{r parLapply-find-dx}
+events <- parLapplyLB(
+  cluster,
+  args_list,
+  reduce_dx
+)
+```
+
+```{r stop-cluster}
+stopCluster(cluster)
+```
+
+### Summarization
+We want to convert the first diagnosis date by `source`/`year` into a table of
+global first diagnosis dates. Additionally, we'd like to summarize the 
+utilization data.
+
+A simple way is just to load them all into lists:
+
+```{r load-utilization-data}
+dx_list <- vector("list", 17 * 2)
+inpatient_volume_list <- vector("list", 17 * 2)
+outpatient_volume_list <- vector("list", 17 * 2)
+ndx_list <- vector("list", 17 * 2)
+outpatient_dx_volume_list <- vector("list", 17 * 2)
+
+i <- 1
+p <- progress::progress_bar$new(
+  total = 17 * 2,
+  format = "[:bar] :percent in :elapsed with :eta remaining"
+)
+for (source in c("ccae", "mdcr")) {
+  for (year in stringr::str_pad(1:17, width = 2, pad = "0")) {
+    dx_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}.rds"))
+    inpatient_volume_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_inpatient.rds"))
+    outpatient_volume_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient.rds"))
+    outpatient_dx_volume_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient_dx.rds"))
+    ndx_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient_ndx.rds"))
+    i <- i + 1
+    p$tick()
+  }
+}
+```
+
+## Generate Covariates
+### Normalize Volumes
+We want to count the number of inpatient events and total inpatient days for
+each person during the lookback period. We will normalize by the duration of
+the lookback period, yielding `in_rate` - the number of inpatient events per 
+year during the lookback - and `in_days_rate` - the number of days hospitalized
+per year.
+
+```{r normalize-inpatient-volume}
+inpatient_volume <- inpatient_volume_list %>%
+  bind_rows() %>%
+  mutate(enrolid = as.numeric(enrolid)) %>%
+  inner_join(
+    enrollments %>%
+      select(enrolid, start_date, index_date),
+    by = "enrolid") %>%
+  filter(admdate <= index_date,
+         admdate >= start_date) %>%
+  group_by(enrolid, duration = index_date - start_date + 1) %>%
+  summarize(
+    n_inpatient_events = n(),
+    n_inpatient_days = sum(los)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    in_rate = n_inpatient_events / duration * 365,
+    in_days_rate = n_inpatient_days / duration * 365
+  )
+```
+
+For outpatient, we just want the total number of outpatient encounters 
+normalized by lookback duration.
+
+```{r normalize-outpatient-volume}
+outpatient_volume <- outpatient_volume_list %>%
+  bind_rows() %>%
+  mutate(enrolid = as.numeric(enrolid)) %>%
+  inner_join(
+    enrollments %>%
+      select(enrolid, start_date, index_date),
+    by = "enrolid") %>%
+  filter(svcdate <= index_date,
+         svcdate >= start_date) %>%
+  select(enrolid, svcdate, index_date, start_date) %>%
+  distinct() %>%
+  group_by(enrolid, duration = index_date - start_date + 1) %>%
+  summarize(
+    n_outpatient = n()
+  ) %>%
+  ungroup() %>%
+  mutate(
+    out_rate = n_outpatient / duration * 365
+  )
+```
+
+What was the mean number of diagnoses made on days with outpatient visits?
+
+```{r normalize-outpatient-ndx}
+ndx <- ndx_list %>%
+  bind_rows() %>%
+  mutate(enrolid = as.numeric(enrolid)) %>%
+  inner_join(
+    enrollments %>%
+      select(enrolid, start_date, index_date),
+    by = "enrolid") %>%
+  filter(svcdate <= index_date,
+         svcdate >= start_date) %>%
+  group_by(enrolid) %>%
+  summarize(
+    mean_ndx = mean(ndx)
+  ) %>%
+  ungroup()
+```
+
+And incidence of diagnosis codes:
+
+```{r normalize-outpatient-dx}
+outpatient_dx_volume <- outpatient_dx_volume_list %>%
+  bind_rows() %>%
+  mutate(enrolid = as.numeric(enrolid)) %>%
+  inner_join(
+    enrollments %>%
+      select(enrolid, start_date, index_date),
+    by = "enrolid") %>%
+  filter(svcdate <= index_date,
+         svcdate >= start_date) %>%
+  group_by(enrolid, duration = index_date - start_date + 1) %>%
+  summarize(
+    out_dx_n = n()
+  ) %>%
+  ungroup() %>%
+  mutate(out_dx_rate = out_dx_n / duration) %>%
+  select(enrolid, out_dx_rate)
+```
+
+### Comorbidity Scores
+The CM scores only only consider historical diagnosis - data before the index
+date. 
+
+```{r restrict-dx-to-lookback}
+dx_tbl <- bind_rows(dx_list)
+
+lookback_dx <- dx_tbl %>%
+  mutate(enrolid = as.numeric(enrolid)) %>%
+  inner_join(enrollments %>%
+               select(enrolid, start_date, index_date),
+             by = "enrolid") %>%
+  filter(first_dx_date >= start_date, first_dx_date <= index_date) %>%
+  select(enrolid, icd_version, dx) %>%
+  distinct()
+```
+
+The package `icd` has great tools for computing the comorbidity scores but 
+can only handle ICD-9 or ICD-10 codes in one tibble. So we want to split our
+`lookback_dx` into ICD-9 and ICD-10 tables.
+
+```{r split-dx-by-icd}
+lookback_dx9 <- lookback_dx %>%
+  filter(icd_version == 9)
+
+lookback_dx10 <- lookback_dx %>%
+  filter(icd_version == 10)
+```
+
+#### Elixhauser Flags
+And now use the mapping `icd9_map_ahrq` and `icd10_map_ahrq`to compute the 
+values. Unlike with CCI, we are leaving these as flags and just need to stack,
+aggregate, and pivot. 
+
+```{r elix-compute}
+elix9 <- comorbid_ahrq(
+  lookback_dx9,
+  visit_name = "enrolid",
+  icd_name = "dx",
+  return_df = TRUE,
+  hierarchy = FALSE
+) %>%
+  as_tibble() %>%
+  gather(cm, value, -enrolid) %>%
+  filter(value == TRUE) %>%
+  select(enrolid, cm)
+
+elix10 <- comorbid_ahrq(
+  lookback_dx10,
+  visit_name = "enrolid",
+  icd_name = "dx",
+  return_df = TRUE,
+  hierarchy = FALSE
+) %>%
+  as_tibble() %>%
+  gather(cm, value, -enrolid) %>%
+  filter(value == TRUE) %>%
+  select(enrolid, cm)
+```
+
+We then pool across the `elix9` and `elix10` tibbles, selecting the unique
+`enrolid`, `cm` pairs.
+
+```{r elix-stack}
+elix <- bind_rows(elix9, elix10) %>%
+  distinct()
+```
+
+Which we then make "wide" to use in the future joins with the model data.
+
+```{r elix-rotate}
+elix_wide <- elix %>%
+  mutate(cm = paste("cm_elix", cm, sep = "_"),
+         value = 1) %>%
+  spread(cm, value)
+```
+
+### Other Ad-Hoc Comorbidities
+We will use the general purpose `icd::comorbid()` to do this work for us. We
+need to start by defining a mapping using a list. The named elements of the
+list will be:
+
+1. BPH
+2. Orthostatic hypotension
+3. Other non-orthostatic hypotension
+4. Abnormal PSA value
+5. Slow urinary stream
+6. Anxiety
+7. Erectile dysfunction
+
+```{r def-ad-hoc}
+adhoc_9 <- list(
+  "cm_bph" = c("60000", "60001", "60010", "60011", "60020", "60021", "6003",
+                     "60090", "60091"),
+  "cm_orthostatic" = c("4580"),
+  "cm_other_hypo" = c("4581", "45821", "45829", "4588", "4589"),
+  "cm_abnormal_psa" = c("79093"),
+  "cm_slow_stream" = c("78862"),
+  "cm_anxiety" = c("30000", "30001", "30002", "30009"),
+  "cm_ed" = c("60784")
+)
+
+adhoc_10 <- list(
+  "cm_bph" = c("N400", "N401", "N402", "N403", "N404"),
+  "cm_orthostatic" = c("I951"),
+  "cm_other_hypo" = c("I950", "I952", "I953"),
+  "cm_abnormal_psa" = c("R972", "R9720", "R9721"),
+  "cm_slow_stream" = c("R3912"),
+  "cm_anxiety" = c("F410", "F411", "F413", "F418", "F419"),
+  "cm_ed" = c("N5201", "N5202", "N5203", "N521", "N528", "N529")
+)
+```
+
+Which we then pull back:
+
+```{r compute-adhoc-flags}
+adhoc_flags_9 <- comorbid(
+  lookback_dx9,
+  adhoc_9,
+  visit_name = "enrolid",
+  icd_name = "dx",
+  return_df = TRUE
+) %>%
+  as_tibble()
+
+adhoc_flags_10 <- comorbid(
+  lookback_dx10,
+  adhoc_10,
+  visit_name = "enrolid",
+  icd_name = "dx",
+  return_df = TRUE
+) %>%
+  as_tibble()
+```
+
+```{r adhoc-stack-and-rotate}
+adhoc <- bind_rows(adhoc_flags_9, adhoc_flags_10) %>%
+  distinct()
+
+adhoc <- adhoc %>%
+  gather(cm, flag, -enrolid) %>%
+  filter(flag == TRUE) %>%
+  distinct() %>%
+  spread(cm, flag)
+```
+
+We also need to pull back procedure events for 
+
+1. Measuring PSA
+2. Uroflow studies
+3. Cystometrogram studies
+
+These are all pre-computed by `find_luts_procs.R` and saved.
+
+Load the set of all PSA measurement claims, restrict to those that happened
+before the index date, find the unique `enrolid` values. Set `psa_measured`
+to `TRUE`. 
+
+```{r process-psa}
+psa_events <- read_rds("/Shared/lss_jsimmeri/LBD/psa_procedures.rds")
+
+psa_flag <- psa_events %>%
+  rename(date = date) %>%
+  inner_join(enrollments, by = "enrolid") %>%
+  filter(date >= start_date, date <= index_date) %>%
+  select(enrolid) %>%
+  distinct() %>%
+  mutate(psa_measured = TRUE)
+```
+
+Repeat this process for uroflow:
+
+```{r process-uroflow}
+uroflow_events <- read_rds("/Shared/lss_jsimmeri/LBD/uroflow_procedures.rds")
+
+uroflow_flag <- uroflow_events %>%
+  rename(date = date) %>%
+  inner_join(enrollments, by = "enrolid") %>%
+  filter(date >= start_date, date <= index_date) %>%
+  select(enrolid) %>%
+  distinct() %>%
+  mutate(uroflow = TRUE)
+```
+
+And cystometrograms:
+
+```{r process-cystometrograms}
+cystometrogram_events <- read_rds("/Shared/lss_jsimmeri/LBD/cystometrogram_procedures.rds")
+
+cystometrogram_flag <- cystometrogram_events %>%
+  rename(date = date) %>%
+  inner_join(enrollments, by = "enrolid") %>%
+  filter(date >= start_date, date <= index_date) %>%
+  select(enrolid) %>%
+  distinct() %>%
+  mutate(cystometrogram = TRUE)
+```
+
+## Building Model Data Set
+We start by putting together the elements of the model data set constructed so
+far. 
+
+Our base is `enrollments` which has 1 row per enrollee in our sample.
+
+```{r init-model-data}
+model_data <- enrollments
+```
+
+We want to include age at medication start. We add `dobyr` from `demographics`
+and use that and the `index_date` to compute the age. 
+
+```{r add-age}
+model_data <- model_data %>%
+  inner_join(
+    demographics %>%
+      mutate(enrolid = as.numeric(enrolid)), 
+    by = "enrolid"
+  ) %>%
+  mutate(
+    age = year(as_date(index_date)) - dobyr
+  ) %>%
+  select(-dobyr)
+```
+
+We want to include `start_year` of the index date as a factor to account for
+changes in the Truven database structure and time-trends in drug use and PD 
+diagnosis rates.
+
+```{r cast-year-as-fct}
+model_data <- model_data %>%
+  mutate(start_year = as.factor(year(as_date(index_date))))
+```
+
+Then we want to add our Elixhauser CM flags. The same process of `left_join()`
+and `replace_na()` applies but we pair it with `across()` to do all 29 CM flags
+at once.
+
+```{r add-elix}
+model_data <- left_join(
+  model_data, 
+  elix_wide %>%
+    mutate(enrolid = as.numeric(enrolid)), 
+  by = "enrolid") %>%
+  mutate(across(starts_with("cm_elix"), function(x) replace_na(x, 0)))
+```
+
+And then our adhoc CM codes, same process:
+
+```{r add-adhoc}
+model_data <- left_join(
+  model_data, 
+  adhoc %>%
+    mutate(enrolid = as.numeric(enrolid)), 
+  by = "enrolid") %>%
+  mutate(across(starts_with("cm"), function(x) replace_na(x, 0)))
+```
+
+And procedures:
+
+```{r add-procs}
+model_data <- model_data %>%
+  left_join(psa_flag, by = "enrolid") %>%
+  left_join(uroflow_flag, by = "enrolid") %>%
+  left_join(cystometrogram_flag, by = "enrolid") %>%
+  mutate(
+    psa_measured = replace_na(psa_measured, FALSE),
+    uroflow = replace_na(uroflow, FALSE),
+    cystometrogram = replace_na(cystometrogram, FALSE)
+  )
+```
+
+We also want to include volume of inpatient and outpatient events. 
+
+```{r add-volume}
+model_data <- model_data %>%
+  left_join(
+    inpatient_volume %>%
+      select(enrolid, in_rate, in_days_rate), 
+    by = "enrolid"
+  ) %>%
+  left_join(
+    outpatient_volume %>%
+      select(enrolid, out_rate),
+    by = "enrolid"
+  ) %>%
+  left_join(
+    ndx,
+    by = "enrolid"
+  ) %>%
+  left_join(
+    outpatient_dx_volume,
+    by = "enrolid"
+  ) %>%
+  mutate(
+    mean_ndx = replace_na(mean_ndx, 0),
+    in_rate = replace_na(in_rate, 0),
+    in_days_rate = replace_na(in_days_rate, 0),
+    out_rate = replace_na(out_rate, 0),
+    out_dx_rate = replace_na(out_dx_rate, 0)
+  )
+```
+
+Finally, we want to add in our outcome and compute the survival time and outcome
+here. Also, compute duration of follow-up.
+
+```{r add-pd-dates}
+dlb_dates <- read_rds("/Shared/lss_jsimmeri/LBD/first_dlb_date.rds")
+model_data <- model_data %>%
+  left_join(
+    dlb_dates %>%
+      mutate(enrolid = as.numeric(enrolid)),
+    by = "enrolid") %>%
+  mutate(
+    follow_up_time = end_date - index_date + 1,
+    develops_pd = ifelse(is.na(dlb_date), FALSE, dlb_date <= end_date),
+    survival_time = ifelse(
+      is.na(dlb_date), 
+      end_date - index_date,
+      ifelse(
+        dlb_date <= end_date,
+        dlb_date - index_date,
+        end_date - index_date
+      )
+    )
+  )
+```
+
+And a crude summary:
+
+```{r crude-summary}
+model_data %>%
+  group_by(drug) %>%
+  summarize(
+    n = n(),
+    cases = sum(develops_pd),
+    py = sum(follow_up_time) / 365,
+    incidence = cases / py * 10000
+  )
+```
+
+## Write Out Data
+```{r}
+write_rds(model_data,
+          "/Shared/lss_jsimmeri/LBD/treated_model_data.rds")
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```

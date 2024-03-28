@@ -1,0 +1,148 @@
+---
+title: "Identify Enrollment Periods of Ever Users"
+description: |
+  The cohort identified in `find_treated.Rmd` is everyone who ever took one of
+  the study drugs (TZ, DZ, AZ, tamsulosin, or a 5ARI). We want to impose three
+  additional restrictions: male sex, age >= 40 at index date, and at least 
+  one year of lookback to identify new users.
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: distill::distill_article
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file was compiled on `r lubridate::now()` by 
+``r Sys.info()["effective_user"]`` on `r Sys.info()["nodename"]`. 
+
+```{r pkg-load}
+library(tidyverse)
+```
+
+We had previously computed the ever users in `find_rx_events.Rmd`. We use 
+that pre-computed data to reduce the number of enrollments and demographic 
+rows that we need to return. 
+
+```{r data-load}
+ever_users <- read_rds("/Shared/lss_jsimmeri/LBD/ever_users.rds")
+```
+
+## Pulling Demographics
+Demographic data for Truven enrollees are stored in 
+`/Shared/Statepi_Marketscan/databases/Truven/truven_demographics.db`. We
+start by creating a connection to the database. 
+
+```{r db-connect}
+db_demo <- DBI::dbConnect(RSQLite::SQLite(),
+                          "/Shared/Statepi_Marketscan/databases/Truven/truven_demographics.db")
+```
+
+Then we pull back the rows matching one of our users.
+
+```{r demo-pull}
+demographics <- tbl(db_demo, "demographics") %>%
+  filter(enrolid %in% local(ever_users$enrolid)) %>%
+  select(enrolid, female, dobyr) %>%
+  collect()
+```
+
+And close the connection.
+
+```{r db-disconnect}
+DBI::dbDisconnect(db_demo)
+```
+
+## Pulling Enrollments
+Enrollment data is stored in 
+`/Shared/Statepi_Marketscan/databases/Truven/truven_enrollments_corrected.db`.
+Connect to that database:
+
+```{r enrollment-db-connect}
+db_enrollment <- DBI::dbConnect(RSQLite::SQLite(),
+                                "/Shared/Statepi_Marketscan/databases/Truven/truven_enrollments_corrected.db")
+```
+
+Since we are interested in medication exposures, we want to require the enrollee
+to have prescription drug coverage to be included by requiring `rx == 1`. 
+We are also only interested in collecting enrollments on the male ever users 
+and so use `demographics$enrolid` as a filtering step. 
+
+```{r pull-enrollments}
+enrollments <- tbl(db_enrollment, "truven_enrollments") %>%
+  filter(rx == 1) %>%
+  filter(enrolid %in% local(demographics$enrolid)) %>%
+  select(enrolid, start_date, end_date) %>%
+  collect()
+```
+
+And closing the connection:
+
+```{r enrollment-db-disconnect}
+DBI::dbDisconnect(db_enrollment)
+```
+
+The resulting enrollments tibble has one row per enrollment period. New rows
+are started when any of the other variables changed - e.g., MSA, state. We
+are not interested in those variables and so we want to "merge" or "collapse"
+these periods if contiguous. 
+
+We do this by sorting the data by `enrolid` and then `start_date`. We compare
+the current row to the prior row to see if either the `enrolid` value has 
+changed or if the start of the current enrollment period is later than and 
+non-contiguous with the end of the prior period. If either of these values is
+true, we create a new period. 
+
+```{r collapse-1}
+collapsed_enrollments <- enrollments %>%
+    arrange(enrolid, start_date) %>%
+    mutate(
+      break_enrolid = enrolid != lag(enrolid),
+      break_time = start_date > lag(end_date + 1)
+    ) %>%
+    mutate(
+      break_any = break_enrolid | break_time,
+      break_any = replace_na(break_any, TRUE)
+    )
+```
+
+We then calculate the cumulative sum of the `break_any` variable to make a 
+period ID. We group by `enrolid` and `period`, which uniquely identify a 
+collection of contiguous enrollment phases, and find the earliest and latest
+date in that collection. 
+
+```{r collapse-2}
+collapsed_enrollments <- collapsed_enrollments %>%
+    mutate(
+      period = cumsum(break_any)
+    ) %>%
+    group_by(enrolid, period) %>%
+    summarize(
+      start_date = min(start_date),
+      end_date = max(end_date),
+      .groups = "drop"
+    ) %>%
+    select(enrolid, start_date, end_date)
+```
+
+The resulting tibble has one row per contiguous enrollment period. If an 
+enrollee has several non-contiguous enrollment periods, that enrollee will
+have multiple rows.
+
+## Write Data
+Save the data we extracted for later use.
+
+```{r data-write}
+write_rds(demographics, "/Shared/lss_jsimmeri/LBD/treated_demographics_women.rds")
+write_rds(collapsed_enrollments, "/Shared/lss_jsimmeri/LBD/treated_enrollments_women.rds")
+```
+
+## Session Info
+```{r session-info}
+sessionInfo()
+```

@@ -1,0 +1,396 @@
+---
+title: "Find Medication Start Date, Apply Exclusion Criteria"
+description: |
+  We want to find the medication start date and apply some basic exclusion
+  rules (365 days of lookback, age over 40, male sex, LBD free at medication 
+  start) and restrict the enrollment period to the one where the medication 
+  start was observed.
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: distill::distill_article
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file was compiled on `r lubridate::now()` by 
+``r Sys.info()["effective_user"]`` on `r Sys.info()["nodename"]`. 
+
+```{r pkg-load}
+library(tidyverse)
+```
+
+We need to find which users of the study drugs are exclusive users of only one
+of the study drugs. Within the cohort of exclusive users, we need to use the 
+data from `treated_demographics.rds` to remove anyone under age 40 and any 
+females. We then impose the 1 year lookback and 1 day follow-up requirements 
+using the enrollment identified in `treated_enrollments.rds`.
+
+```{r data-load}
+ever_users <- read_rds("/Shared/lss_jsimmeri/LBD/ever_users.rds")
+demos <- read_rds("/Shared/lss_jsimmeri/LBD/treated_demographics_women.rds")
+study_enrollments <- read_rds("/Shared/lss_jsimmeri/LBD/treated_enrollments_women.rds")
+```
+
+## Remove Anyone on More than One Study Drug
+If there is more than 1 row for an `enrolid` in `ever_users`, they are a user
+of more than 1 of the study medication groups (TZ/DZ/AZ, tamsulosin, 5ARI) and
+we want to remove them. 
+
+Before removing anyone, we have a total of `r NROW(unique(ever_users$enrolid))`
+on at least one study medication at least once. We want to reduce that to the
+number of unique users by removing people who use more than 1 study drug:
+
+```{r remove-multi-users}
+exclusive_users <- ever_users %>%
+  group_by(enrolid) %>%
+  filter(n() == 1)
+```
+
+We have a total of `r nrow(exclusive_users)` who are potentially newly started
+on only one of the study drugs.
+
+The breakdown by drug is:
+
+```{r breakdown-exclusive-users}
+exclusive_users %>%
+  group_by(drug) %>%
+  summarize(n = n()) %>%
+  knitr::kable()
+```
+
+## Remove Anyone Under the Age of 40
+
+In our next step, we want to apply the age 40+ requirement. BPH and LBD are both
+exceedingly uncommon under this age and inclusion of people under 40 who have
+treatment for BPH or a diagnosis of LBD are likely to be "weird" and not 
+representative of the typical person at risk. 
+
+```{r remove-young}
+age_40_plus <- exclusive_users %>%
+  inner_join(demos, join_by("enrolid")) |>
+  ungroup() %>%
+  filter((lubridate::year(lubridate::as_date(first_rx_date)) - dobyr) >= 40)
+```
+
+This leaves us with `r nrow(age_40_plus)` participants:
+
+```{r breakdown-40p-users}
+age_40_plus %>%
+  group_by(drug) %>%
+  summarize(n = n()) %>%
+  knitr::kable()
+```
+
+## Add Enrollment and Impose Lookback/Follow-Up Requirements
+### Adding Enrollment
+The enrollment tibble is one row per enrollment period. We want to join that 
+to the index dates in `age_40_plus` and then narrow down to the rows where the
+index date happens after the enrollment start date and before the enrollment
+end date. 
+
+```{r add-enrollment}
+with_enrollments <- age_40_plus %>%
+  mutate(enrolid = as.numeric(enrolid)) %>%
+  inner_join(study_enrollments, by = "enrolid")
+```
+
+And then restricting to the correct enrollment:
+
+```{r filter-to-enrollment}
+with_enrollments <- with_enrollments %>%
+  filter(first_rx_date >= start_date, first_rx_date <= end_date)
+```
+
+We want to restrict this one time further to be sure and eliminate any `enrolid`
+with the index date following in more than 1 enrollment period. 
+
+```{r remove-dups}
+with_enrollments <- with_enrollments %>%
+  group_by(enrolid) %>%
+  filter(n() == 1) %>%
+  ungroup()
+```
+
+We are left with `r nrow(with_enrollments)` users with an identifiable 
+enrollment window. Some people start outside of this for weird, administrative
+reasons (back dated coverage or what not) and we just want to avoid that. 
+
+```{r breakdown-enrolled-users}
+with_enrollments %>%
+  group_by(drug) %>%
+  summarize(n = n()) %>%
+  knitr::kable()
+```
+
+### Lookback Requirement
+We want at least 365 days of enrollment before the first start date. This is 
+how we are defining new users. 
+
+```{r impose-lookback}
+with_lookback <- with_enrollments %>%
+  filter(first_rx_date > (start_date + 365))
+```
+
+We have `r nrow(with_lookback)` users:
+
+```{r breakdown-with-lookback-users}
+with_lookback %>%
+  group_by(drug) %>%
+  summarize(n = n()) %>%
+  knitr::kable()
+```
+
+### Follow-Up Requirement
+People are no good to us if they leave the data on the date of medication 
+start. We want to impose at least 1 day of follow-up. 
+
+```{r impose-follow-up}
+with_follow_up <- with_lookback %>%
+  filter(end_date > first_rx_date)
+```
+
+We have `r nrow(with_follow_up)` users:
+
+```{r breakdown-with-followup-users}
+with_follow_up %>%
+  group_by(drug) %>%
+  summarize(n = n()) %>%
+  knitr::kable()
+```
+
+## Remove Anyone with LBD On or Before the Index Date
+We want to remove anyone who has developed LBD on or before the index date.
+Obviously, survival time cannot be negative. 
+
+Load the LBD dates computed by `find_pd_dates.Rmd`
+
+```{r load-dlb-dates}
+dlb_dates <- read_rds("/Shared/lss_jsimmeri/LBD/first_dlb_date.rds")
+```
+
+and combine with `left_join()` with the enrollments in `with_lookback`:
+
+```{r add-dlb}
+with_follow_up <- with_follow_up %>%
+  left_join(dlb_dates %>%
+              mutate(enrolid = as.numeric(enrolid)), 
+            by = "enrolid")
+```
+
+With the following rates of LBD during the lookback period.
+
+```{r summary-dlb-by-drug}
+with_follow_up %>%
+  mutate(
+    dlb_before_drug = ifelse(is.na(dlb_date), FALSE, dlb_date <= first_rx_date)
+  ) %>%
+  group_by(drug) %>%
+  summarize(
+    cases = sum(dlb_before_drug),
+    n = n(),
+    py = sum(first_rx_date - start_date + 1) / 365
+  ) %>%
+  mutate(
+    rate = cases / n * 100,
+    incidence_10k = cases / py * 10000
+  )
+```
+
+We remove the cases where LBD occurred before the index date:
+
+```{r}
+without_dlb <- with_follow_up %>%
+  filter(is.na(dlb_date) | dlb_date > first_rx_date)
+```
+
+Leaving us with `r nrow(without_dlb)` enrollees:
+
+```{r breakdown-dlb-free-users}
+without_dlb %>%
+  group_by(drug) %>%
+  summarize(n = n()) %>%
+  knitr::kable()
+```
+
+## Optionally Remove Anyone With Fewer Than 2 RX Events in the First Year
+An additional requirement is that the men have at least 2 dispensing claims for
+the study drug within the first year of use. This is an attempt to narrow our
+sample to a cohort of true users, as opposed to people who immediately d/c'ed
+the drug. 
+
+We load the entire set of rx events:
+
+```{r load-rx-events}
+rx_events <- read_rds("/Shared/lss_jsimmeri/LBD/treated_rx_events.rds")
+```
+
+We can quickly reduce this to only the RX events that occur in one of our 
+candidate men:
+
+```{r restrict-rx-to-cohort}
+rx_events_in_first_year <- rx_events %>%
+  mutate(enrolid = as.numeric(enrolid)) %>%
+  inner_join(without_dlb %>%
+               select(enrolid, first_rx_date),
+             by = "enrolid") %>%
+  filter(svcdate <= (first_rx_date + 365))
+```
+
+And then get a count of RX events in the first year:
+
+```{r count-rx}
+rx_count <- rx_events_in_first_year %>%
+  select(enrolid, svcdate) %>%
+  distinct() %>%
+  group_by(enrolid) %>%
+  summarize(n_rx = n())
+```
+
+Then use this to filter `without_pd` to those with `n_rx >= 2`:
+
+```{r filter-without-pd}
+two_or_more <- without_dlb %>%
+  inner_join(rx_count, by = "enrolid") %>%
+  filter(n_rx >= 2)
+```
+
+## Sample Size by Exclusion Step
+```{r}
+bind_rows(
+  exclusive_users %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "Exclusive Users", row = 1),
+  age_40_plus %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "Aged 40 or Older", row = 3),
+  with_enrollments %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "With Identified Enrollment", row = 4),
+  with_lookback %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "With >365 Days of Lookback", row = 5),
+  with_follow_up %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "With >= 1 Days of Follow-Up", row = 6),
+  without_dlb %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "Without PD at Index date", row = 7),
+  two_or_more %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "Two or More RX Events in First Year", row = 8)
+  ) %>%
+  select(row, label, `tz/dz/az`, `tamsulosin`, `5ari`) %>%
+  knitr::kable()
+
+bind_rows(
+  exclusive_users %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "Exclusive Users", row = 1),
+  age_40_plus %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "Aged 40 or Older", row = 3),
+  with_enrollments %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "With Identified Enrollment", row = 4),
+  with_lookback %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "With >365 Days of Lookback", row = 5),
+  with_follow_up %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "With >= 1 Days of Follow-Up", row = 6),
+  without_dlb %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "Without PD at Index date", row = 7),
+  two_or_more %>%
+    group_by(drug) %>%
+    summarize(n = n()) %>%
+    spread(drug, n) %>%
+    mutate(label = "Two or More RX Events in First Year", row = 8)
+  ) %>%
+  gather(drug, n, -label, -row) %>%
+  group_by(drug) %>%
+  mutate(
+    pct = round(n / max(n) * 100, 2)
+  ) %>%
+  select(-n) %>%
+  spread(drug, pct) %>%
+  select(row, label, `tz/dz/az`, `tamsulosin`, `5ari`) %>%
+  arrange(row) %>%
+  knitr::kable()
+```
+
+## Write Out
+
+We now have the required data for the candidate men treated with the study 
+drugs. We have the following tibble that describes their assignment, index
+date, enrollment start, enrollment end dates, and their date of birth. 
+
+```{r tibble-preview}
+final_cohort <- left_join(
+  without_dlb,
+  two_or_more |>
+    mutate(two_rx = TRUE) |>
+    select(enrolid, drug, two_rx),
+  by = c("enrolid", "drug")
+) |>
+  select(enrolid, drug, two_rx, index_date = first_rx_date, start_date, end_date) |>
+  mutate(two_rx = replace_na(two_rx, FALSE))
+final_cohort
+```
+
+Broken down over the following treatment assignments:
+
+```{r tibble-summary}
+final_cohort %>%
+  group_by(drug) %>%
+  summarize(
+    n = n(),
+    person_years = sum(end_date - start_date + 1) / 365
+  ) %>%
+  knitr::kable()
+```
+
+We then write this out for use in building the model data sets and the 
+propensity score matching.
+
+```{r save}
+write_rds(final_cohort,
+          "/Shared/lss_jsimmeri/LBD/candidate_treated_women.rds")
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```
