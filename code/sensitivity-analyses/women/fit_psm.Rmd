@@ -1,0 +1,183 @@
+---
+title: "Develop Propensity Score Models"
+description: |
+ Estimate the propensity score model, export propensity scores for matching
+author:
+  - name: Jacob Simmering, PhD 
+    url: https://jacobsimmering.com
+    affiliation: University of Iowa
+    affiliation_url: https://uiowa.edu
+date: "`r Sys.Date()`"
+output: 
+  distill::distill_article:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file was compiled on `r lubridate::now()` by 
+``r Sys.info()["effective_user"]`` on `r Sys.info()["nodename"]`. 
+
+```{r pkg-load}
+library(tidyverse)
+library(mgcv)
+library(parallel)
+```
+
+## Define Models
+We are using a GAM to estimate the propensity scores. Our full model 
+specification is below:
+
+```{r def-models-full}
+ps_full <- treatment ~ s(age) +
+  s(in_rate) + 
+  s(out_rate) + s(mean_ndx) + s(out_dx_rate) +
+  start_year +
+  cm_elix_Alcohol + cm_elix_Anemia + cm_elix_BloodLoss +
+  cm_elix_CHF + cm_elix_Coagulopathy + cm_elix_Depression +
+  cm_elix_DM + cm_elix_DMcx + cm_elix_Drugs +
+  cm_elix_FluidsLytes + cm_elix_HIV + cm_elix_HTN + cm_elix_HTNcx +
+  cm_elix_Hypothyroid + cm_elix_Liver + cm_elix_Lymphoma +
+  cm_elix_Mets + cm_elix_NeuroOther + cm_elix_Obesity +
+  cm_elix_Paralysis + cm_elix_PHTN + cm_elix_Psychoses +
+  cm_elix_PUD + cm_elix_Pulmonary + cm_elix_PVD +
+  cm_elix_Renal + cm_elix_Rheumatic + cm_elix_Tumor +
+  cm_elix_Valvular + cm_elix_WeightLoss +
+  cm_bph + cm_slow_stream + cm_abnormal_psa +
+  psa_measured + uroflow + cystometrogram +
+  cm_orthostatic + cm_other_hypo +
+  cm_anxiety + cm_ed
+```
+
+## Load Data and Make Data Sets for Model Estimation
+Next, we need to load the data that was intended to be used to estimate the 
+PSMs.
+
+```{r load-model-data}
+treated <- read_rds("/Shared/lss_jsimmeri/LBD/treated_model_data_women.rds")
+```
+
+And build the comparison data sets:
+
+- TZ/DZ/AZ vs tamsulosin
+
+
+```{r tz-tam}
+tz_tam_2rx <- treated %>%
+  filter(two_rx == TRUE) %>%
+  filter(drug %in% c("tz/dz/az", "tamsulosin")) %>%
+  mutate(treatment = drug == "tz/dz/az")
+```
+
+- TZ/DZ/AZ vs 5ARI
+
+```{r tz-5ari}
+tz_5ari_2rx <- treated %>%
+  filter(two_rx == TRUE) %>%
+  filter(drug %in% c("tz/dz/az", "5ari")) %>%
+  mutate(treatment = drug == "tz/dz/az")
+```
+
+- Tamsulosin versus 5ARI
+
+```{r tam-5ari}
+tam_5ari_2rx <- treated %>%
+  filter(two_rx == TRUE) %>%
+  filter(drug %in% c("5ari", "tamsulosin")) %>%
+  mutate(treatment = drug == "tamsulosin")
+```
+
+## Functions to Fit Propensity Score Models
+For ease, using a function to wrap around `bam()` to provide detail on the 
+PS model fitting process:
+
+```{r def-fit_xgboost_model}
+fit_gam_model <- function(data, ps_formula, k = 28) {
+  obs_tx <- data$drug[data$treatment == 1][1]
+  obs_ref <- data$drug[data$treatment == 0][1]
+  n_tx <- sum(data$treatment)
+  n_con <- sum(data$treatment == 0)
+
+  message(glue::glue("{lubridate::now()} | Treatment = {obs_tx} [{n_tx}] | Ref = {obs_ref} [{n_con}]"))
+
+  message(glue::glue("{lubridate::now()} | Starting model fitting"))
+  cluster <- parallel::makeCluster(k)
+  model <- bam(
+    ps_formula,
+    data = data,
+    family = binomial(),
+    nthreads = 28,
+    cluster = cluster
+  )
+  parallel::stopCluster(cluster)
+  message(glue::glue("{lubridate::now()} | Finished model fitting"))
+  
+  fitted_values <- data %>%
+    select(enrolid, treatment, follow_up_time) %>%
+    mutate(
+      ptx = predict(model, type = "response")
+    )
+
+  return(fitted_values)
+}
+```
+
+## Fit Propensity Scores
+Then generate all the data needed for matching:
+
+### TZ/DZ/AZ vs...
+```{r fit-psm-tz-tam}
+model_tz_tam_2rx_men <- fit_gam_model(tz_tam_2rx |> filter(female == 0), ps_full)
+model_tz_tam_2rx_women <- fit_gam_model(tz_tam_2rx |> filter(female == 1), ps_full)
+```
+
+```{r fit-psm-tz-5ari}
+model_tz_5ari_2rx_men <- fit_gam_model(tz_5ari_2rx |> filter(female == 0), ps_full)
+model_tz_5ari_2rx_women <- fit_gam_model(tz_5ari_2rx |> filter(female == 1), ps_full)
+```
+
+### Tamsulosin vs...
+```{r fit-psm-tam-5ari}
+model_tam_5ari_2rx_men <- fit_gam_model(tam_5ari_2rx |> filter(female == 0), ps_full)
+model_tam_5ari_2rx_women <- fit_gam_model(tam_5ari_2rx |> filter(female == 1), ps_full)
+```
+
+## Save Data for Matching
+And save the results for use in the matching script: 
+
+```{r save-data}
+write_rds(
+  model_tz_tam_2rx_men, 
+  "/Shared/lss_jsimmeri/LBD/model_tz_tam_2rx_male.rds"
+)
+write_rds(
+  model_tz_tam_2rx_women, 
+  "/Shared/lss_jsimmeri/LBD/model_tz_tam_2rx_female.rds"
+)
+
+write_rds(
+  model_tz_5ari_2rx_men, 
+  "/Shared/lss_jsimmeri/LBD/model_tz_5ari_2rx_male.rds"
+)
+write_rds(
+  model_tz_5ari_2rx_women, 
+  "/Shared/lss_jsimmeri/LBD/model_tz_5ari_2rx_female.rds"
+)
+
+write_rds(
+  model_tam_5ari_2rx_men, 
+  "/Shared/lss_jsimmeri/LBD/model_tam_5ari_2rx_male.rds"
+)
+write_rds(
+  model_tam_5ari_2rx_women, 
+  "/Shared/lss_jsimmeri/LBD/model_tam_5ari_2rx_female.rds"
+)
+```
+
+## Session Info
+```{r sysinfo}
+sessionInfo()
+```
