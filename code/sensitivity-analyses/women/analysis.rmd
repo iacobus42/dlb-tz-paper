@@ -24,6 +24,7 @@ library(survival)
 library(tableone)
 library(effectsize)
 library(patchwork)
+library(extrafont)
 ```
 
 ```{r gen-outcomes}
@@ -89,7 +90,8 @@ male_vs_female_tz <- CreateTableOne(
   data = model_data |> 
     mutate(start_year = as.numeric(as.character(start_year))) |>
     filter(drug == "tz/dz/az") |>
-    mutate(female = ifelse(female, "Female", "Male"))
+    mutate(female = ifelse(female, "Female", "Male")) |>
+    mutate(in_year = (in_rate > 0) * 100)
 )
 
 print(male_vs_female_tz,
@@ -97,7 +99,25 @@ print(male_vs_female_tz,
       smd = TRUE)
 ```
 
-Second, compare that to men on Tz/Dz/Az versus men on tamsulosin:
+Second, compare women on Tz/Dz/Az to women on tamsulosin:
+
+```{r}
+female_tz_vs_female_tam <- CreateTableOne(
+  vars = vars,
+  strata = "drug",
+  data = model_data |> 
+    mutate(start_year = as.numeric(as.character(start_year))) |>
+    filter(drug == "tz/dz/az" | drug == "tamsulosin") |>
+    filter(female == 1) |>
+    mutate(in_year = (in_rate > 0) * 100)
+)
+
+print(female_tz_vs_female_tam,
+      nonnormal = non_normal_vars,
+      smd = TRUE)
+```
+
+As a reference, compare that to men on Tz/Dz/Az versus men on tamsulosin:
 
 ```{r}
 male_tz_vs_male_tam <- CreateTableOne(
@@ -149,6 +169,11 @@ male_vs_female_tz_data <- model_data |>
     filter(drug == "tz/dz/az") |>
     mutate(female = ifelse(female, "Female", "Male"))
 
+female_vs_female_tz_data <- model_data |> 
+    mutate(start_year = as.numeric(as.character(start_year))) |>
+    filter(female == 1) |>
+    filter(drug %in% c("tz/dz/az", "tamsulosin"))
+
 male_tz_vs_male_tam_data <- model_data |> 
     mutate(start_year = as.numeric(as.character(start_year))) |>
     filter(female == 0) |>
@@ -167,6 +192,10 @@ for (variable in vars) {
     std_diff_male_tz_vs_tam <- cohens_d_no_ci(
       male_tz_vs_male_tam_data, variable, "drug", 0.95
     )
+
+    std_diff_female_tz_vs_tam <- cohens_d_no_ci(
+      female_vs_female_tz_data, variable, "drug", 0.95
+    )
   } else {
     std_diff_male_vs_female <- cohens_w(
       male_vs_female_tz_data, variable, "female", 0.95
@@ -175,12 +204,20 @@ for (variable in vars) {
     std_diff_male_tz_vs_tam <- cohens_w(
       male_tz_vs_male_tam_data, variable, "drug", 0.95
     )
+
+    std_diff_female_tz_vs_tam <- cohens_w(
+      female_vs_female_tz_data, variable, "drug", 0.95
+    )
   }
 
   standardized_difference[[i]] <- tibble(
     variable = variable,
-    comparison = c("male vs female", "tz vs tam"),
-    std_diff = c(std_diff_male_vs_female$estimate, std_diff_male_tz_vs_tam$estimate)
+    comparison = c("Male Tz/Dz/Az vs Female Tz/Dz/AZ", 
+                   "Male Tz/Dz/Az vs Male Tamsulosin",
+                   "Female Tz/Dz/Az vs Female Tamsulosin"),
+    std_diff = c(std_diff_male_vs_female$estimate, 
+                 std_diff_male_tz_vs_tam$estimate,
+                 std_diff_female_tz_vs_tam$estimate)
   )
   i <- i + 1
 }
@@ -232,7 +269,7 @@ variable_labels <- tribble(
   "in_rate", "Rate of Inpatient Stays", "Health Care Utilization", 2,
   "in_days_rate", "Rate of Inpatient Days", "Health Care Utilization", 2,
   "out_rate", "Rate of Outpatient Encounters", "Health Care Utilization", 2,
-  "mean_ndx", "Mean Num. of DX per\nOutpatient Encounter", "Health Care Utilization", 2,
+  "mean_ndx", "Mean Num. of DX per Encounter", "Health Care Utilization", 2,
   "out_dx_rate", "Rate of Unique Outpatient DX", "Health Care Utilization", 2,
   )
 
@@ -241,290 +278,33 @@ standardized_difference <- standardized_difference |>
   filter(variable != "develops_pd") |>
   inner_join(variable_labels, join_by(variable))
 
-baseline_characteristics <- standardized_difference |>
-  filter(variable_group == "Baseline Characteristics") |>
-  ggplot(
-    aes(
-      x = abs(std_diff),
-      y = variable_label,
-      color = comparison
-    )
-  ) + 
-  geom_point() +
-  theme_minimal() +
-  theme(legend.position = "none") + 
-  labs(x = "", y = "", title = "Baseline Characteristics") +
-  scale_x_continuous(limits = c(0, 0.75)) +
-  geom_vline(xintercept = 0.1, linetype = 2) + 
-  geom_vline(xintercept = 0.2, linetype = 3) + 
-  geom_vline(xintercept = 0.5, linetype = 4)
-
-utilization <- standardized_difference |>
-  filter(variable_group == "Health Care Utilization") |>
-  ggplot(
-    aes(
-      x = abs(std_diff),
-      y = variable_label,
-      color = comparison
-    )
-  ) + 
-  geom_point() +
-  theme_minimal() +
-  theme(legend.position = "none") + 
-  labs(x = "", y = "", title = "Health Care Utilization") +
-  scale_x_continuous(limits = c(0, 0.75)) + 
-  geom_vline(xintercept = 0.1, linetype = 2) + 
-  geom_vline(xintercept = 0.2, linetype = 3) + 
-  geom_vline(xintercept = 0.5, linetype = 4)
-
-prodromal <- standardized_difference |>
-  filter(variable_group == "Possible DLB Prodromal Signs") |>
-  ggplot(
-    aes(
-      x = abs(std_diff),
-      y = variable_label,
-      color = comparison
-    )
-  ) + 
-  geom_point() +
-  theme_minimal() +
-  theme(legend.position = "none") + 
-  labs(x = "", y = "", title = "Possible DLB Prodromal Signs") +
-  scale_x_continuous(limits = c(0, 0.75)) + 
-  geom_vline(xintercept = 0.1, linetype = 2) + 
-  geom_vline(xintercept = 0.2, linetype = 3) + 
-  geom_vline(xintercept = 0.5, linetype = 4)
-
-bph_luts <- standardized_difference |>
-  filter(variable_group == "BPH/Urinary Symptoms") |>
-  ggplot(
-    aes(
-      x = abs(std_diff),
-      y = variable_label,
-      color = comparison
-    )
-  ) + 
-  geom_point() +
-  theme_minimal() +
-  theme(legend.position = "none") + 
-  labs(x = "", y = "", title = "BPH/Urinary Symptoms") +
-  scale_x_continuous(limits = c(0, 0.75)) + 
-  geom_vline(xintercept = 0.1, linetype = 2) + 
-  geom_vline(xintercept = 0.2, linetype = 3) + 
-  geom_vline(xintercept = 0.5, linetype = 4)
-
-elixhauser <- standardized_difference |>
-  filter(variable_group == "Elixhauser Comorbidities") |>
-  ggplot(
-    aes(
-      x = abs(std_diff),
-      y = variable_label,
-      color = comparison
-    )
-  ) + 
-  geom_point() +
-  theme_minimal() +
-  theme(legend.position = "none") + 
-  labs(x = "", y = "", title = "Elixhauser Comorbidities") +
-  scale_x_continuous(limits = c(0, 0.75)) + 
-  geom_vline(xintercept = 0.1, linetype = 2) + 
-  geom_vline(xintercept = 0.2, linetype = 3) + 
-  geom_vline(xintercept = 0.5, linetype = 4)
-
-baseline_characteristics / utilization / prodromal / bph_luts / elixhauser + 
-  plot_layout(
-    design = "AA
-     AA
-     BB
-     BB
-     BB
-     BB
-     BB
-     CC
-     CC
-     CC
-     CC
-     DD
-     DD
-     DD
-     DD
-     DD
-     DD
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE
-     EE"
-  )
-
-ggsave("~/smd_male_female.png", width = 8.5, height = 11)
-```
-
-
-```{r}
-
-tab_tz_tam_female_matched <- CreateTableOne(
-  vars = vars,
-  strata = "drug",
-  data = model_data |> 
-    filter(enrolid %in% outcomes_tz_tam_female$enrolid) |>
-    mutate(start_year = as.numeric(start_year))
-)
-
-print(tab_tz_tam_female_matched,
-      nonnormal = non_normal_vars,
-      smd = TRUE)
-```
-
-## Tz/Dz/Az versus Tamsulosin
-
-```{r}
-vars <- c("develops_pd")
-tab_tz_tam_female <- CreateTableOne(
-  vars = vars,
-  strata = "drug",
-  data = outcomes_tz_tam_female
-)
-print(tab_tz_tam_female, formatOptions = list(big.mark = ","))
-```
-
-```{r tz-vs-tam}
-coxph(
-  Surv(survival_time, develops_pd) ~ drug,
-  data = outcomes_tz_tam_female,
-  cluster = pair_id,
-  robust = TRUE
-)
-
-coxph(
-  Surv(survival_time, develops_pd) ~ drug,
-  data = outcomes_tz_tam_female,
-  cluster = pair_id,
-  robust = TRUE
-)
-```
-
-```{r}
-outcomes_tz_tam |>
-  group_by(drug, female) |>
-  summarize(
-    n = n(),
-    time = sum(survival_time / 365),
-    cases = sum(develops_pd),
-    incidence = cases / time * 10000
-  )
-
-coxph(Surv(survival_time, develops_pd) ~ drug * female, 
-      data = outcomes_tz_tam, 
-      cluster = pair_id,
-      robust = TRUE) %>%
-  summary()
-
-outcomes_tz_5ari |>
-  group_by(drug, female) |>
-  summarize(
-    n = n(),
-    time = sum(survival_time / 365),
-    cases = sum(develops_pd),
-    incidence = cases / time * 10000
-  )
-
-coxph(Surv(survival_time, develops_pd) ~ drug * female, 
-      data = outcomes_tz_5ari, 
-      cluster = pair_id,
-      robust = TRUE) %>%
-  summary()
-
-outcomes_tam_5ari |>
-  group_by(drug, female) |>
-  summarize(
-    n = n(),
-    time = sum(survival_time / 365),
-    cases = sum(develops_pd),
-    incidence = cases / time * 10000
-  )
-
-coxph(Surv(survival_time, develops_pd) ~ drug * female, 
-      data = outcomes_tam_5ari, 
-      cluster = pair_id,
-      robust = TRUE) %>%
-  summary()
-```
-
-```{r}
-survfit(
-  Surv(survival_time, develops_pd) ~ drug + female, 
-  data = outcomes_tz_tam) |>
-  broom::tidy() |>
+standardized_difference |>
+  group_by(variable_group) |>
   mutate(
-    treatment = ifelse(stringr::str_detect(strata, "tz/dz/az"), "Tz/Dz/Az", "Tamsulosin"),
-    gender = ifelse(stringr::str_sub(strata, -1, -1) == "0", "Male", "Female")
+    variable_level = group_level + row_number() / (n() + 1)
+  ) |>
+  ungroup() |>
+  mutate(
+    variable_label = forcats::fct_reorder(
+      variable_label,
+      variable_level
+    ) 
   ) |>
   ggplot(
     aes(
-      x = time / 365, 
-      y = estimate,
-      ymin = conf.low,
-      ymax = conf.high,
-      color = treatment,
-      fill = treatment
+      x = abs(std_diff),
+      y = forcats::fct_rev(variable_label),
+      color = comparison
     )
-  ) + 
-  geom_step() + 
-  geom_ribbon(alpha = 0.33, linetype = 0) + 
-  facet_wrap(~ gender)
-ggsave("~/dlb_male_female_km_matched.png")
-```
+  ) +
+  geom_point() +
+  geom_vline(xintercept = 0.1, linetype = 2) +
+  geom_vline(xintercept = 0.2, linetype = 2) +
+  geom_vline(xintercept = 0.5, linetype = 2) +
+  geom_vline(xintercept = 0.8, linetype = 2) +
+  theme_bw() + 
+  labs(x = "Standardized Difference", y = "", color = "Comparison") +
+  theme(legend.position = c(.75, 0.25))
 
-```{r}
-survfit(
-  Surv(survival_time, develops_pd) ~ drug + female, 
-  data = outcomes |> filter(drug %in% c("tz/dz/az", "tamsulosin"))) |>
-  broom::tidy() |>
-  mutate(
-    treatment = ifelse(stringr::str_detect(strata, "tz/dz/az"), "Tz/Dz/Az", "Tamsulosin"),
-    gender = ifelse(stringr::str_sub(strata, -1, -1) == "0", "Male", "Female")
-  ) |>
-  ggplot(
-    aes(
-      x = time / 365, 
-      y = estimate,
-      ymin = conf.low,
-      ymax = conf.high,
-      color = treatment,
-      fill = treatment
-    )
-  ) + 
-  geom_step() + 
-  geom_ribbon(alpha = 0.33, linetype = 0) + 
-  facet_wrap(~ gender)
-ggsave("~/dlb_male_female_km_raw.png")
+ggsave("~/smd_male_female.svg", width = 8.5, height = 11)
 ```

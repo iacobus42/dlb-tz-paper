@@ -341,11 +341,11 @@ p <- progress::progress_bar$new(
 )
 for (source in c("ccae", "mdcr")) {
   for (year in stringr::str_pad(1:17, width = 2, pad = "0")) {
-    dx_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}.rds"))
-    inpatient_volume_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_inpatient.rds"))
-    outpatient_volume_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient.rds"))
-    outpatient_dx_volume_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient_dx.rds"))
-    ndx_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient_ndx.rds"))
+    dx_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_women.rds"))
+    inpatient_volume_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_inpatient_women.rds"))
+    outpatient_volume_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient_women.rds"))
+    outpatient_dx_volume_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient_dx_women.rds"))
+    ndx_list[[i]] <- read_rds(glue::glue("/Shared/lss_jsimmeri/LBD/{source}_{year}_outpatient_ndx_women.rds"))
     i <- i + 1
     p$tick()
   }
@@ -790,7 +790,7 @@ model_data %>%
 ## Write Out Data
 ```{r}
 write_rds(model_data,
-          "/Shared/lss_jsimmeri/LBD/treated_model_data.rds")
+          "/Shared/lss_jsimmeri/LBD/treated_model_data_women.rds")
 ```
 
 ## Session Info
